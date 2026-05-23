@@ -1,2 +1,2 @@
 @echo off
-start "" "D:\nexus\release-tmp\ForgeMTG\ForgeMTG.exe"
+start "" "D:\nexus\release-tmp\build\win-unpacked\Nexus.exe"

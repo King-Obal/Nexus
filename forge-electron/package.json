@@ -1,16 +1,36 @@
 {
   "name": "nexus",
-  "version": "0.1.0",
-  "description": "Nexus - MTG Forge Frontend",
+  "version": "1.0.0",
+  "productName": "Nexus",
+  "description": "Nexus - MTG Duel Commander Interface",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "build": "electron-builder --dir"
   },
   "keywords": [],
-  "author": "",
+  "author": "Maxime",
   "license": "GPL-3.0",
   "devDependencies": {
-    "electron": "^33.4.0"
+    "electron": "^33.4.0",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.nexus.mtg",
+    "productName": "Nexus",
+    "directories": {
+      "output": "../release-tmp/build"
+    },
+    "win": {
+      "target": "dir",
+      "icon": "src/card-back.png",
+      "signAndEditExecutable": false
+    },
+    "files": [
+      "**/*",
+      "!node_modules/.cache",
+      "!test-main*.js"
+    ]
   }
 }

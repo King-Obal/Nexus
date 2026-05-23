@@ -6,11 +6,17 @@ const https = require('https');
 
 const API_PORT = 4567;
 const API_BASE = 'http://localhost:' + API_PORT;
-const JAR_PATH = path.join(
-  __dirname, '..', 'forge-api', 'target',
-  'forge-api-2.0.12-SNAPSHOT-jar-with-dependencies.jar'
-);
-const JAR_WORKDIR = path.join(__dirname, '..', 'forge-api');
+
+// Paths differ between dev (electron .) and packaged (Nexus.exe)
+const isDev = !app.isPackaged;
+const APP_ROOT = isDev
+  ? path.join(__dirname, '..')          // d:\Nexus
+  : path.join(process.resourcesPath, '..'); // d:\...\Nexus\resources\..
+
+const JAR_PATH = isDev
+  ? path.join(APP_ROOT, 'forge-api', 'target', 'forge-api-2.0.12-SNAPSHOT-jar-with-dependencies.jar')
+  : path.join(APP_ROOT, 'forge-api', 'forge-api.jar');
+const JAR_WORKDIR = path.join(APP_ROOT, 'forge-api');
 
 let mainWindow = null;
 let forgeProcess = null;
