@@ -16,6 +16,7 @@
       <button class="tab active" data-view="decks">Decks</button>
       <button class="tab" data-view="play">Play</button>
       <button class="tab" data-view="builder">Builder</button>
+      <button class="tab" data-view="tests">Tests</button>
     </nav>
     <button id="btn-import-moxfield" class="btn-import">⬇ Import Deck</button>
     <span class="version">v2.0.12</span>
@@ -410,6 +411,19 @@
         </div>
 
       </div>
+    </section>
+
+    <!-- ── TESTS VIEW ──────────────────────────────────── -->
+    <section class="view" id="view-tests">
+      <div class="tests-toolbar">
+        <button id="btn-run-tests" class="tests-run-btn">▶ Lancer les tests</button>
+        <div id="tests-summary-bar" class="tests-summary-bar" style="display:none">
+          <span id="tests-count-pass" class="tests-count-pass">0 ✓</span>
+          <span id="tests-count-fail" class="tests-count-fail">0 ✗</span>
+        </div>
+        <span id="tests-spinner" class="tests-spinner" style="display:none">En cours…</span>
+      </div>
+      <div id="tests-container" class="tests-container"></div>
     </section>
 
   </main>
