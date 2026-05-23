@@ -23,6 +23,9 @@ function esc(str) {
 }
 
 // ── Deck import ───────────────────────────────────────────────────────────
+const formatSelect   = document.getElementById('play-format');
+async function loadDecks() { await populatePlayDecks(); }
+
 const modalImport    = document.getElementById('modal-import');
 const modalError     = document.getElementById('modal-error');
 const btnImport      = document.getElementById('btn-import-moxfield');
@@ -468,7 +471,10 @@ async function populatePlayDecks() {
       if (i === 1 && decks.length >= 2) s.selectedIndex = 1;
     });
   } catch (e) {
-    [s1, s2].forEach(s => { s.innerHTML = '<option value="">Error</option>'; });
+    [s1, s2].forEach(s => {
+      s.innerHTML = '<option value="">Erreur — relancer le serveur ?</option>';
+      s.disabled = false;
+    });
   }
 }
 
@@ -1750,7 +1756,7 @@ function handleCmdCardClick(card, anchorEl) {
   const decision = playState?.pendingDecision;
   if (!decision || decision.type !== 'CHOOSE_ACTION') return;
   const options = decision.data?.options || [];
-  const cmdOpts = options.filter(o => o.cardId == card.id && o.zone?.toUpperCase() === 'COMMAND');
+  const cmdOpts = options.filter(o => String(o.cardId) === String(card.id) && o.zone?.toUpperCase() === 'COMMAND');
   if (cmdOpts.length === 0) return;
   if (cmdOpts.length === 1) {
     sendDecision({ choice: cmdOpts[0].id });
@@ -1876,7 +1882,7 @@ function handleBfCardClick(card, anchorEl) {
   const decision = playState?.pendingDecision;
   if (!decision || decision.type !== 'CHOOSE_ACTION') return;
   const options = decision.data?.options || [];
-  const bfOpts = options.filter(o => o.cardId == card.id && o.zone?.toUpperCase() === 'BATTLEFIELD');
+  const bfOpts = options.filter(o => String(o.cardId) === String(card.id) && o.zone?.toUpperCase() === 'BATTLEFIELD');
   if (bfOpts.length === 0) return;
 
   // If there's only one option and it's a single-color mana ability, auto-activate silently

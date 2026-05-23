@@ -176,7 +176,9 @@ public class GameSession {
             for (Player p : game.getPlayers()) {
                 players.add(serializePlayer(p));
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            System.err.println("[API] serializePlayers error: " + e);
+        }
         state.put("players", players);
 
         // Stack
@@ -324,8 +326,8 @@ public class GameSession {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", c.getId());
         map.put("name", c.getName());
-        try { map.put("manaCost", c.getManaCost().toString()); } catch (Exception ignored) {}
-        try { map.put("type", c.getType().toString()); } catch (Exception ignored) {}
+        try { map.put("manaCost", c.getManaCost().toString()); } catch (Exception e) { System.err.println("[API] serializeCard manaCost error for " + c.getName() + ": " + e); }
+        try { map.put("type", c.getType().toString()); } catch (Exception e) { System.err.println("[API] serializeCard type error for " + c.getName() + ": " + e); }
         try { map.put("tapped", c.isTapped()); } catch (Exception ignored) {}
         try {
             if (c.isCreature()) {
@@ -333,7 +335,7 @@ public class GameSession {
                 map.put("toughness", c.getNetToughness());
                 map.put("damage", c.getDamage());
             }
-        } catch (Exception ignored) {}
+        } catch (Exception e) { System.err.println("[API] serializeCard P/T error for " + c.getName() + ": " + e); }
         // Counters
         try {
             Map<String, Integer> counters = new LinkedHashMap<>();
@@ -341,7 +343,7 @@ public class GameSession {
                 if (v > 0) counters.put(k.toString(), v);
             });
             if (!counters.isEmpty()) map.put("counters", counters);
-        } catch (Exception ignored) {}
+        } catch (Exception e) { System.err.println("[API] serializeCard counters error for " + c.getName() + ": " + e); }
         // Token flag + english name for image lookup
         try { if (c.isToken()) map.put("isToken", true); } catch (Exception ignored) {}
         try { map.put("englishName", c.getName()); } catch (Exception ignored) {}
@@ -359,7 +361,7 @@ public class GameSession {
                     kws.add(kwStr);
             }
             if (!kws.isEmpty()) map.put("keywords", kws);
-        } catch (Exception ignored) {}
+        } catch (Exception e) { System.err.println("[API] serializeCard keywords error for " + c.getName() + ": " + e); }
         // Combat status (attacking / blocking)
         try {
             Combat combat = game.getPhaseHandler().getCombat();

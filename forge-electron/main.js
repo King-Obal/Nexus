@@ -15,10 +15,10 @@ const JAR_WORKDIR = path.join(__dirname, '..', 'forge-api');
 let mainWindow = null;
 let forgeProcess = null;
 
-// ── Forge API process ──────────────────────────────────────────────────────
+// ── Nexus API process ──────────────────────────────────────────────────────
 
 function startForgeApi() {
-  console.log('[main] Starting Forge API server...');
+  console.log('[main] Starting Nexus API server...');
   const fs = require('fs');
   const logDir = path.join(JAR_WORKDIR, 'logs');
   if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
@@ -27,9 +27,9 @@ function startForgeApi() {
     cwd: JAR_WORKDIR,
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  forgeProcess.stdout.on('data', function(d) { process.stdout.write('[forge] ' + d); logStream.write(d); });
-  forgeProcess.stderr.on('data', function(d) { process.stderr.write('[forge] ' + d); logStream.write(d); });
-  forgeProcess.on('exit', function(code) { console.log('[main] Forge exited (' + code + ')'); });
+  forgeProcess.stdout.on('data', function(d) { process.stdout.write('[nexus] ' + d); logStream.write(d); });
+  forgeProcess.stderr.on('data', function(d) { process.stderr.write('[nexus] ' + d); logStream.write(d); });
+  forgeProcess.on('exit', function(code) { console.log('[main] Nexus API exited (' + code + ')'); });
 }
 
 function pollUntilReady(retries, interval) {
@@ -51,7 +51,7 @@ function pollUntilReady(retries, interval) {
       }).on('error', retry);
     }
     function retry() {
-      if (++attempts >= retries) return reject(new Error('Forge API not ready'));
+      if (++attempts >= retries) return reject(new Error('Nexus API not ready'));
       setTimeout(check, interval);
     }
     check();
@@ -73,7 +73,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false
     },
-    title: 'Forge MTG'
+    title: 'Nexus'
   });
   mainWindow.on('closed', function() { mainWindow = null; });
   return mainWindow;

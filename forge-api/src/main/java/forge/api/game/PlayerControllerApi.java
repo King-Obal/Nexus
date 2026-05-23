@@ -657,9 +657,9 @@ public class PlayerControllerApi extends PlayerController {
             }
         }
 
-        // Cards on battlefield, graveyard, hand, exile
+        // Cards on battlefield, graveyard, hand, exile, library
         for (ZoneType zone : Arrays.asList(ZoneType.Battlefield, ZoneType.Graveyard,
-                ZoneType.Hand, ZoneType.Exile)) {
+                ZoneType.Hand, ZoneType.Exile, ZoneType.Library)) {
             for (Card c : getGame().getCardsIn(zone)) {
                 if (sa.canTarget(c)) {
                     Map<String, Object> t = new LinkedHashMap<>();
@@ -742,22 +742,44 @@ public class PlayerControllerApi extends PlayerController {
 
         // Apply divided allocations if provided
         if (isDivided) {
+            Integer dividedTotal = sa.getDividedValue();
             Object allocRaw = response.get("dividedAllocations");
             if (allocRaw instanceof Map<?,?> allocMap) {
+                // Validate: sum of allocations must equal dividedTotal, each >= 1
+                int sum = 0;
+                boolean valid = true;
                 for (Object targetId : chosenList) {
                     Object amtObj = allocMap.get(targetId.toString());
-                    if (amtObj instanceof Number) {
-                        int amt = ((Number) amtObj).intValue();
-                        // Find the corresponding GameObject and allocate
+                    if (!(amtObj instanceof Number)) { valid = false; break; }
+                    int amt = ((Number) amtObj).intValue();
+                    if (amt < 1) { valid = false; break; }
+                    sum += amt;
+                }
+                if (valid && dividedTotal != null && sum != dividedTotal) {
+                    System.err.println("[API] dividedAllocations sum=" + sum + " != total=" + dividedTotal + ", falling back to even split");
+                    valid = false;
+                }
+                if (valid) {
+                    for (Object targetId : chosenList) {
+                        int amt = ((Number) allocMap.get(targetId.toString())).intValue();
                         applyDividedAllocation(sa, targetId.toString(), amt);
+                    }
+                } else {
+                    // Fallback: even split
+                    if (dividedTotal != null && !chosenList.isEmpty()) {
+                        int perTarget = dividedTotal / chosenList.size();
+                        int remainder = dividedTotal % chosenList.size();
+                        for (int i = 0; i < chosenList.size(); i++) {
+                            int amt = perTarget + (i == chosenList.size() - 1 ? remainder : 0);
+                            applyDividedAllocation(sa, chosenList.get(i).toString(), amt);
+                        }
                     }
                 }
             } else {
                 // No explicit allocation: distribute evenly (last target gets remainder)
-                Integer total = sa.getDividedValue();
-                if (total != null && !chosenList.isEmpty()) {
-                    int perTarget = total / chosenList.size();
-                    int remainder = total % chosenList.size();
+                if (dividedTotal != null && !chosenList.isEmpty()) {
+                    int perTarget = dividedTotal / chosenList.size();
+                    int remainder = dividedTotal % chosenList.size();
                     for (int i = 0; i < chosenList.size(); i++) {
                         int amt = perTarget + (i == chosenList.size() - 1 ? remainder : 0);
                         applyDividedAllocation(sa, chosenList.get(i).toString(), amt);
@@ -806,13 +828,16 @@ public class PlayerControllerApi extends PlayerController {
                 }
                 // Other zones: Card objects
                 for (ZoneType zone : Arrays.asList(ZoneType.Battlefield, ZoneType.Graveyard,
-                        ZoneType.Hand, ZoneType.Exile)) {
+                        ZoneType.Hand, ZoneType.Exile, ZoneType.Library)) {
                     for (Card c : getGame().getCardsIn(zone)) {
                         if (c.getId() == cid) { sa.getTargets().add(c); return; }
                     }
                 }
+                System.err.println("[API] applyTargetById: card id=" + cid + " not found in any zone");
             }
-        } catch (NumberFormatException ignored) {}
+        } catch (NumberFormatException e) {
+            System.err.println("[API] applyTargetById: invalid id format: " + id);
+        }
     }
 
     /** Apply a divided damage allocation to the appropriate GameObject in sa's targets. */
@@ -831,7 +856,7 @@ public class PlayerControllerApi extends PlayerController {
                     }
                 }
                 for (ZoneType zone : Arrays.asList(ZoneType.Battlefield, ZoneType.Graveyard,
-                        ZoneType.Hand, ZoneType.Exile)) {
+                        ZoneType.Hand, ZoneType.Exile, ZoneType.Library)) {
                     for (Card c : getGame().getCardsIn(zone)) {
                         if (c.getId() == cid) { sa.addDividedAllocation(c, amount); return; }
                     }
@@ -1079,24 +1104,35 @@ public class PlayerControllerApi extends PlayerController {
         if (max > 1) data.put("multiSelect", true);
         session.publishDecision("CHOOSE_CARD", playerIndex, data);
         Map<String, Object> response = awaitOrAbort(5, TimeUnit.MINUTES);
-        if (response == null) return isOptional ? new CardCollection() : takeFirst(sourceList, min);
+        if (response == null) {
+            System.err.println("[API] pickCardsInteractive: timeout for '" + title + "', using default");
+            return isOptional ? new CardCollection() : takeFirst(sourceList, min);
+        }
         // Multi-select response: { cardIds: [id1, id2, ...] }
         Object idsObj = response.get("cardIds");
         if (idsObj instanceof List<?> idList) {
             CardCollection result = new CardCollection();
             for (Object idObj : idList) {
-                if (idObj instanceof Number) {
-                    int id = ((Number) idObj).intValue();
-                    for (Card c : indexed) { if (c.getId() == id) { result.add(c); break; } }
-                }
+                int id = idObj instanceof Number ? ((Number) idObj).intValue()
+                       : tryParseInt(idObj);
+                if (id < 0) continue;
+                for (Card c : indexed) { if (c.getId() == id) { result.add(c); break; } }
             }
             if (!result.isEmpty()) return result;
+            if (isOptional || min == 0) return new CardCollection();
         }
         // Single-select response: { cardId: id }
         Object idObj = response.get("cardId");
-        if (idObj instanceof Number) {
-            int id = ((Number) idObj).intValue();
-            for (Card c : indexed) { if (c.getId() == id) return new CardCollection(Collections.singletonList(c)); }
+        if (idObj != null) {
+            int id = idObj instanceof Number ? ((Number) idObj).intValue() : tryParseInt(idObj);
+            if (id >= 0) {
+                for (Card c : indexed) {
+                    if (c.getId() == id) return new CardCollection(Collections.singletonList(c));
+                }
+                System.err.println("[API] pickCardsInteractive: cardId=" + id + " not found in options");
+            }
+        } else {
+            System.err.println("[API] pickCardsInteractive: no cardId/cardIds in response for '" + title + "'");
         }
         return isOptional ? new CardCollection() : takeFirst(sourceList, min);
     }
@@ -1129,14 +1165,36 @@ public class PlayerControllerApi extends PlayerController {
         data.put("destination", "HAND");
         session.publishDecision("CHOOSE_CARD", playerIndex, data);
         Map<String, Object> response = awaitOrAbort(5, TimeUnit.MINUTES);
-        if (response == null) return isOptional ? new ArrayList<>() : new ArrayList<>(List.of(indexed.get(0)));
+        if (response == null) {
+            System.err.println("[API] chooseEntitiesForEffect: timeout, using default");
+            return isOptional ? new ArrayList<>() : new ArrayList<>(List.of(indexed.get(0)));
+        }
 
+        // Multi-select response: { cardIds: [id1, id2, ...] }
+        Object idsObj = response.get("cardIds");
+        if (idsObj instanceof List<?> idList && !idList.isEmpty()) {
+            List<T> result = new ArrayList<>();
+            for (Object idObj2 : idList) {
+                if (!(idObj2 instanceof Number)) continue;
+                int id = ((Number) idObj2).intValue();
+                for (T entity : indexed) {
+                    if (entity instanceof Card c && c.getId() == id) { result.add(entity); break; }
+                }
+            }
+            if (!result.isEmpty()) return result;
+        }
+
+        // Single-select response: { cardId: id }
         Object idObj = response.get("cardId");
-        if (idObj == null) return isOptional ? new ArrayList<>() : new ArrayList<>(List.of(indexed.get(0)));
-        long chosenId = ((Number) idObj).longValue();
+        if (idObj == null) {
+            System.err.println("[API] chooseEntitiesForEffect: no cardId in response, using default");
+            return isOptional ? new ArrayList<>() : new ArrayList<>(List.of(indexed.get(0)));
+        }
+        int chosenId = ((Number) idObj).intValue();
         for (T entity : indexed) {
             if (entity instanceof Card c && c.getId() == chosenId) return new ArrayList<>(List.of(entity));
         }
+        System.err.println("[API] chooseEntitiesForEffect: cardId=" + chosenId + " not found in options");
         return isOptional ? new ArrayList<>() : new ArrayList<>(List.of(indexed.get(0)));
     }
 
@@ -1973,6 +2031,15 @@ public class PlayerControllerApi extends PlayerController {
         if (source == null || source.isEmpty() || n == 0) return new CardCollection();
         int take = Math.min(n, source.size());
         return new CardCollection(source.subList(0, take));
+    }
+
+    /** Parse an id that may be Number or String. Returns -1 on failure. */
+    private static int tryParseInt(Object obj) {
+        if (obj instanceof Number) return ((Number) obj).intValue();
+        if (obj instanceof String s) {
+            try { return Integer.parseInt(s); } catch (NumberFormatException ignored) {}
+        }
+        return -1;
     }
 
     /** Serialize a Card to a map for frontend display. */
