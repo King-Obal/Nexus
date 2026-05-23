@@ -565,19 +565,29 @@ public class PlayerControllerApi extends PlayerController {
         System.err.println("[API] playTrigger: " + host.getName()
                 + " | mandatory=" + isMandatory
                 + " | desc=" + wrapperAbility.getDescription());
-        // Mandatory triggers (lore counters, upkeep effects, ETB, etc.) always fire
-        if (isMandatory) return true;
-        // Optional triggers: ask the player
-        Map<String, Object> data = new LinkedHashMap<>();
-        data.put("card", host.getName());
-        data.put("description", wrapperAbility.getDescription());
-        data.put("prompt", "Déclencher : " + wrapperAbility.getDescription() + " ?");
-        data.put("optional", true);
-        session.publishDecision("CONFIRM_TRIGGER", playerIndex, data);
-        Map<String, Object> response = awaitOrAbort(5, TimeUnit.MINUTES);
-        if (response == null) return true; // auto-yes on timeout
-        Object choice = response.get("choice");
-        return !"no".equals(choice) && !"false".equals(String.valueOf(choice));
+        boolean shouldFire;
+        if (isMandatory) {
+            shouldFire = true;
+        } else {
+            // Optional triggers: ask the player
+            Map<String, Object> data = new LinkedHashMap<>();
+            data.put("card", host.getName());
+            data.put("description", wrapperAbility.getDescription());
+            data.put("prompt", "Déclencher : " + wrapperAbility.getDescription() + " ?");
+            data.put("optional", true);
+            session.publishDecision("CONFIRM_TRIGGER", playerIndex, data);
+            Map<String, Object> response = awaitOrAbort(5, TimeUnit.MINUTES);
+            if (response == null) {
+                shouldFire = true; // auto-yes on timeout
+            } else {
+                Object choice = response.get("choice");
+                shouldFire = !"no".equals(choice) && !"false".equals(String.valueOf(choice));
+            }
+        }
+        if (shouldFire) {
+            playSpellAbilityNoStack(wrapperAbility, false);
+        }
+        return shouldFire;
     }
 
     @Override
@@ -1830,7 +1840,23 @@ public class PlayerControllerApi extends PlayerController {
 
     @Override
     public ColorSet chooseColors(String message, SpellAbility sa, int min, int max, ColorSet options) {
-        return options;
+        // For single-color choice (the common case: Utopia Sprawl, Painter's Servant, etc.)
+        if (min == 1 && max == 1) {
+            byte chosen = askChooseColor(message, sa != null ? sa.getHostCard() : null, options, false);
+            return ColorSet.fromMask(chosen);
+        }
+        // Multi-color choice: ask repeatedly until min reached
+        ColorSet remaining = options;
+        java.util.List<Byte> chosen = new java.util.ArrayList<>();
+        for (int i = 0; i < max && remaining.getColor() != 0; i++) {
+            if (i >= min) break; // stop at min for now (no "done" button)
+            byte pick = askChooseColor(message, sa != null ? sa.getHostCard() : null, remaining, false);
+            chosen.add(pick);
+            remaining = ColorSet.fromMask((byte)(remaining.getColor() & ~pick));
+        }
+        byte mask = 0;
+        for (byte b : chosen) mask |= b;
+        return ColorSet.fromMask(mask);
     }
 
     @Override

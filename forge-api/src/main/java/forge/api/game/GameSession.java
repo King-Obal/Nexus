@@ -315,7 +315,7 @@ public class GameSession {
             manaPool.put("B", pool.getAmountOfColor(forge.card.MagicColor.BLACK));
             manaPool.put("R", pool.getAmountOfColor(forge.card.MagicColor.RED));
             manaPool.put("G", pool.getAmountOfColor(forge.card.MagicColor.GREEN));
-            manaPool.put("C", pool.getAmountOfColor(forge.card.MagicColor.COLORLESS));
+            manaPool.put("C", pool.getAmountOfColor((byte) forge.card.mana.ManaAtom.COLORLESS));
             map.put("manaPool", manaPool);
         } catch (Exception ignored) {}
 

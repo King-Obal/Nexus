@@ -1616,8 +1616,8 @@ function renderPlayer(p, prefix) {
 
   // Battlefield — categorize by type
   const bf = p.battlefield || [];
-  const lands     = bf.filter(c => c.type && c.type.includes('Land'));
-  const creatures = bf.filter(c => c.type && c.type.includes('Creature') && !(c.type.includes('Land')));
+  const lands     = bf.filter(c => c.type && c.type.includes('Land') && !c.type.includes('Creature'));
+  const creatures = bf.filter(c => c.type && c.type.includes('Creature'));
   // Attached cards (auras, equipment) are rendered on their host — exclude from side panel
   const attached  = bf.filter(c => c.attachedToId != null);
   const side      = bf.filter(c => !lands.includes(c) && !creatures.includes(c) && !attached.includes(c));
