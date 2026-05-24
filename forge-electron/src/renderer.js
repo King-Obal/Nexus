@@ -491,6 +491,16 @@ loadDecks('Constructed');
 
 // ── PLAY VIEW ─────────────────────────────────────────────────────────────
 
+// Format picker buttons (Commander / Constructed)
+document.querySelectorAll('.format-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.format-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('play-format').value = btn.dataset.fmt;
+    populatePlayDecks();
+  });
+});
+
 // Populate play deck selectors when the Play tab is activated
 document.querySelector('.tab[data-view="play"]').addEventListener('click', () => {
   populatePlayDecks();

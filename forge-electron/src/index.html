@@ -89,6 +89,25 @@
       <!-- Setup panel (shown before game starts) -->
       <div id="play-setup" class="panel play-setup-panel">
         <h2>Interactive Play</h2>
+
+        <!-- Format picker -->
+        <div class="format-picker">
+          <button class="format-btn active" data-fmt="Commander">
+            <span class="fmt-icon">⚔</span>
+            <span class="fmt-name">Commander</span>
+            <span class="fmt-desc">100 cartes · singleton</span>
+          </button>
+          <button class="format-btn" data-fmt="Constructed">
+            <span class="fmt-icon">⚡</span>
+            <span class="fmt-name">Constructed 60</span>
+            <span class="fmt-desc">Modern · Standard · Legacy</span>
+          </button>
+        </div>
+        <select id="play-format" class="format-select" style="display:none">
+          <option value="Commander">Commander</option>
+          <option value="Constructed">Constructed</option>
+        </select>
+
         <div class="play-setup-row">
           <div class="player-slot">
             <label>Player 1 — Deck</label>
@@ -129,13 +148,6 @@
           </div>
         </div>
 
-        <div class="format-row">
-          <label>Format</label>
-          <select id="play-format" class="format-select">
-            <option value="Commander">Commander</option>
-            <option value="Constructed">Constructed</option>
-          </select>
-        </div>
         <div class="debug-toggle-row">
           <label class="debug-toggle-label">
             <input type="checkbox" id="play-debug-mode">

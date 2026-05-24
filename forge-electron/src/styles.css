@@ -159,6 +159,39 @@ select, input[type="number"] {
 select:focus, input:focus { border-color: var(--border-focus); }
 select option { background: var(--bg-input); }
 
+/* ── Format picker (play setup) ───────────────────────── */
+.format-picker {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.format-btn {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  border: 2px solid var(--border);
+  border-radius: 8px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: border-color .15s, color .15s, background .15s;
+}
+.format-btn:hover {
+  border-color: var(--border-focus);
+  color: var(--text-primary);
+}
+.format-btn.active {
+  border-color: var(--gold);
+  background: rgba(200,169,110,.08);
+  color: var(--gold);
+}
+.fmt-icon { font-size: 1.4rem; line-height: 1; }
+.fmt-name { font-size: 0.95rem; font-weight: 700; }
+.fmt-desc { font-size: 0.68rem; color: inherit; opacity: 0.7; }
+
 .format-row {
   display: flex;
   align-items: center;
