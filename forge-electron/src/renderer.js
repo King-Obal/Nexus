@@ -1171,7 +1171,6 @@ function showCommanderSwapModal(commanders, designatedCount, onSelect) {
   document.body.appendChild(modal);
 }
 
-// onConfirm receives [{in: name, out: name}] (the swap pairs) or [] (skip)
 // prevSwaps: { sbIn: [name,...], sbOut: [name,...] } — swaps already applied (from previous games)
 // onConfirm: receives { sbIn, sbOut } (the full cumulative swap list)
 function showSideboardSwapModal(originalMain, originalSideboard, prevSwaps, onConfirm) {
@@ -1193,11 +1192,11 @@ function showSideboardSwapModal(originalMain, originalSideboard, prevSwaps, onCo
 
   const origTotal = originalMain.reduce((s, c) => s + c.qty, 0);
 
-  // pendingIn/Out: {name -> count} — changes made in this session on top of effective state
-  const pendingIn  = {};
-  const pendingOut = {};
-  const countIn  = () => Object.values(pendingIn).reduce((s, v) => s + v, 0);
-  const countOut = () => Object.values(pendingOut).reduce((s, v) => s + v, 0);
+  // movedToMain: side→main moves this session; movedToSide: main→side moves this session
+  const movedToMain = {};
+  const movedToSide = {};
+  const countIn  = () => Object.values(movedToMain).reduce((s, v) => s + v, 0);
+  const countOut = () => Object.values(movedToSide).reduce((s, v) => s + v, 0);
 
   const modal = document.createElement('div');
   modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;z-index:9500';
@@ -1225,8 +1224,8 @@ function showSideboardSwapModal(originalMain, originalSideboard, prevSwaps, onCo
     h.textContent = txt;
     return h;
   };
-  leftWrap.appendChild(mkHeader('Sideboard → Main deck'));
-  rightWrap.appendChild(mkHeader('Main deck → Sideboard'));
+  leftWrap.appendChild(mkHeader('Sideboard'));
+  rightWrap.appendChild(mkHeader('Main deck'));
 
   const leftGrid  = document.createElement('div');
   const rightGrid = document.createElement('div');
@@ -1251,17 +1250,15 @@ function showSideboardSwapModal(originalMain, originalSideboard, prevSwaps, onCo
 
   function buildResult() {
     const inArr = [], outArr = [];
-    for (const [name, qty] of Object.entries(pendingIn))  for (let i = 0; i < qty; i++) inArr.push(name);
-    for (const [name, qty] of Object.entries(pendingOut)) for (let i = 0; i < qty; i++) outArr.push(name);
+    for (const [name, qty] of Object.entries(movedToMain))  for (let i = 0; i < qty; i++) inArr.push(name);
+    for (const [name, qty] of Object.entries(movedToSide)) for (let i = 0; i < qty; i++) outArr.push(name);
     return { sbIn: [...prevIn, ...inArr], sbOut: [...prevOut, ...outArr] };
   }
 
   function updateCounter() {
     const n = countIn(), m = countOut();
-    // Total deck size: origTotal + prevIn.length - prevOut.length + n - m
     const netChange = prevIn.length - prevOut.length + n - m;
     const deckSize  = origTotal + netChange;
-    // Rule: can't end up with fewer cards than started (deckSize >= origTotal)
     const invalid = deckSize < origTotal;
     counter.style.color = invalid ? '#f44336' : n === 0 && m === 0 ? 'var(--text-secondary,#888)' : '#4caf50';
     if (invalid) {
@@ -1280,13 +1277,7 @@ function showSideboardSwapModal(originalMain, originalSideboard, prevSwaps, onCo
     confirmBtn.textContent = totalChanges > 0 ? `Confirmer (deck: ${deckSize})` : 'Confirmer sans changement';
   }
 
-  function mkCardTile(name, selected, available, onClick, side) {
-    const tile = document.createElement('div');
-    tile.dataset.card = name;
-    tile.style.cssText = 'width:72px;cursor:pointer;text-align:center;border-radius:4px;transition:outline .1s;outline:' +
-      (selected ? '2px solid ' + (side === 'in' ? '#4caf50' : '#ff9800') : '2px solid transparent');
-    if (!available) tile.style.opacity = '0.35';
-
+  function addCardVisual(tile, name) {
     const sf = scryfallCards.get(name);
     const img = sfFaceImg(sf, name);
     if (img) {
@@ -1314,8 +1305,16 @@ function showSideboardSwapModal(originalMain, originalSideboard, prevSwaps, onCo
     lbl.style.cssText = 'font-size:0.55rem;color:var(--text-muted,#888);margin-top:2px;line-height:1.2;overflow:hidden;max-height:2.4em';
     lbl.textContent = name;
     tile.appendChild(lbl);
+  }
 
-    if (available || selected) tile.addEventListener('click', onClick);
+  // highlight: null = normal, 'in' = green (came from side), 'out' = orange (came from main)
+  function mkCardTile(name, highlight, onClick) {
+    const tile = document.createElement('div');
+    tile.dataset.card = name;
+    const outlineColor = highlight === 'in' ? '#4caf50' : highlight === 'out' ? '#ff9800' : 'transparent';
+    tile.style.cssText = `width:72px;cursor:pointer;text-align:center;border-radius:4px;outline:2px solid ${outlineColor};transition:outline .1s`;
+    addCardVisual(tile, name);
+    tile.addEventListener('click', onClick);
     return tile;
   }
 
@@ -1323,37 +1322,57 @@ function showSideboardSwapModal(originalMain, originalSideboard, prevSwaps, onCo
     leftGrid.innerHTML = '';
     rightGrid.innerHTML = '';
 
-    const sideEntries = Object.entries(effSide).sort(([a], [b]) => a.localeCompare(b));
-    for (const [name, qty] of sideEntries) {
-      const sel = pendingIn[name] || 0;
-      for (let copy = 0; copy < qty; copy++) {
-        const isSelected = copy < sel;
-        const tile = mkCardTile(name, isSelected, copy >= sel, () => {
-          if ((pendingIn[name] || 0) < qty) pendingIn[name] = (pendingIn[name] || 0) + 1;
-          else { pendingIn[name]--; if (!pendingIn[name]) delete pendingIn[name]; }
+    // LEFT PANEL: orange tiles (moved from main→side, click to undo) + available sideboard (click to send to main)
+    const movedToSideEntries = Object.entries(movedToSide).sort(([a],[b]) => a.localeCompare(b));
+    for (const [name, qty] of movedToSideEntries) {
+      for (let i = 0; i < qty; i++) {
+        leftGrid.appendChild(mkCardTile(name, 'out', () => {
+          movedToSide[name]--;
+          if (!movedToSide[name]) delete movedToSide[name];
           renderPanels(); updateCounter();
-        }, 'in');
-        leftGrid.appendChild(tile);
+        }));
       }
     }
-    if (!sideEntries.length) {
+    const sideEntries = Object.entries(effSide)
+      .map(([n, q]) => [n, q - (movedToMain[n] || 0)])
+      .filter(([, q]) => q > 0)
+      .sort(([a],[b]) => a.localeCompare(b));
+    for (const [name, qty] of sideEntries) {
+      for (let i = 0; i < qty; i++) {
+        leftGrid.appendChild(mkCardTile(name, null, () => {
+          movedToMain[name] = (movedToMain[name] || 0) + 1;
+          renderPanels(); updateCounter();
+        }));
+      }
+    }
+    if (!movedToSideEntries.length && !sideEntries.length) {
       const empty = document.createElement('div');
       empty.style.cssText = 'color:var(--text-secondary,#888);font-size:0.75rem;padding:8px';
       empty.textContent = 'Sideboard vide';
       leftGrid.appendChild(empty);
     }
 
-    const mainEntries = Object.entries(effMain).sort(([a], [b]) => a.localeCompare(b));
-    for (const [name, qty] of mainEntries) {
-      const sel = pendingOut[name] || 0;
-      for (let copy = 0; copy < qty; copy++) {
-        const isSelected = copy < sel;
-        const tile = mkCardTile(name, isSelected, copy >= sel, () => {
-          if ((pendingOut[name] || 0) < qty) pendingOut[name] = (pendingOut[name] || 0) + 1;
-          else { pendingOut[name]--; if (!pendingOut[name]) delete pendingOut[name]; }
+    // RIGHT PANEL: green tiles (moved from side→main, click to undo) + available main (click to send to side)
+    const movedToMainEntries = Object.entries(movedToMain).sort(([a],[b]) => a.localeCompare(b));
+    for (const [name, qty] of movedToMainEntries) {
+      for (let i = 0; i < qty; i++) {
+        rightGrid.appendChild(mkCardTile(name, 'in', () => {
+          movedToMain[name]--;
+          if (!movedToMain[name]) delete movedToMain[name];
           renderPanels(); updateCounter();
-        }, 'out');
-        rightGrid.appendChild(tile);
+        }));
+      }
+    }
+    const mainEntries = Object.entries(effMain)
+      .map(([n, q]) => [n, q - (movedToSide[n] || 0)])
+      .filter(([, q]) => q > 0)
+      .sort(([a],[b]) => a.localeCompare(b));
+    for (const [name, qty] of mainEntries) {
+      for (let i = 0; i < qty; i++) {
+        rightGrid.appendChild(mkCardTile(name, null, () => {
+          movedToSide[name] = (movedToSide[name] || 0) + 1;
+          renderPanels(); updateCounter();
+        }));
       }
     }
   }
