@@ -375,6 +375,19 @@ async function fetchScryfallBatch(names) {
             scryfallCards.set(face.trim(), card);
         }
       }
+      // Also index original Forge names that differ only by diacritics (e.g. "Lorien Revealed" → "Lórien Revealed")
+      const stripAccents = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+      for (const origName of batch) {
+        if (scryfallCards.has(origName)) continue;
+        const normOrig = stripAccents(origName);
+        for (const card of d.data || []) {
+          if (stripAccents(card.name) === normOrig ||
+              (card.name.includes(' // ') && stripAccents(card.name.split(' // ')[0].trim()) === normOrig)) {
+            scryfallCards.set(origName, card);
+            break;
+          }
+        }
+      }
     } catch { /* fallback to text tile */ }
     // Also index original Forge MDFC names ("A // B") → front face lookup
     for (const origName of batch) {
@@ -2934,10 +2947,16 @@ function showZonePickModal(data) {
     if (selectedIds.has(c.id)) div.style.outline = '2px solid var(--gold,#c8a96e)';
     const sf = scryfallCards.get(c.name);
     const imgUrl = sfFaceImg(sf, c.name);
-    div.innerHTML = imgUrl
-      ? `<img src="${esc(imgUrl)}" alt="${esc(c.name)}">`
-      : `<div style="width:100%;aspect-ratio:0.716;background:var(--bg-elevated);border:1px solid var(--border);border-radius:3px;display:flex;align-items:center;justify-content:center;padding:4px;font-size:0.58rem;color:var(--text-primary);text-align:center;line-height:1.2">${esc(c.name)}</div>`;
-    div.innerHTML += `<span class="zone-pick-card-name">${esc(c.name)}</span>`;
+    const nameSpan = `<span class="zone-pick-card-name">${esc(c.name)}</span>`;
+    if (imgUrl) {
+      div.innerHTML = `<img src="${esc(imgUrl)}" alt="${esc(c.name)}">${nameSpan}`;
+    } else {
+      div.innerHTML = `<div style="width:100%;aspect-ratio:0.716;background:var(--bg-elevated);border:1px solid var(--border);border-radius:3px;display:flex;align-items:center;justify-content:center;padding:4px;font-size:0.58rem;color:var(--text-primary);text-align:center;line-height:1.2">${esc(c.name)}</div>${nameSpan}`;
+      fetchCardImage(c.name).then(u => {
+        if (!u || !div.isConnected) return;
+        div.innerHTML = `<img src="${esc(u)}" alt="${esc(c.name)}">${nameSpan}`;
+      });
+    }
     div.addEventListener('click', () => {
       if (!isMulti) {
         modal.classList.add('hidden');
@@ -2953,7 +2972,6 @@ function showZonePickModal(data) {
         updateMultiCounter();
       }
     });
-    if (!sf) fetchCardImage(c.name);
     return div;
   }
 
