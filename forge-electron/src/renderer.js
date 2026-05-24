@@ -64,14 +64,16 @@ modalImport.addEventListener('click', e => { if (e.target === modalImport) modal
 
 // Auto-preview on paste
 document.getElementById('deck-text-input').addEventListener('input', () => {
-  const { mainboard, commanders } = parseDeckList(document.getElementById('deck-text-input').value);
+  const { mainboard, commanders, sideboard } = parseDeckList(document.getElementById('deck-text-input').value);
   if (!mainboard.length && !commanders.length) { parsePreview.innerHTML = ''; return; }
   const total = mainboard.reduce((s, c) => s + c.qty, 0);
+  const sbTotal = (sideboard || []).reduce((s, c) => s + c.qty, 0);
   const cmdNames = commanders.map(c =>
     `<span class="cmd-name" data-card="${esc(c.name)}">${esc(c.name)}</span>`).join(', ');
-  parsePreview.innerHTML = commanders.length
-    ? `${total} cards &middot; Commander: ${cmdNames}`
-    : `${total} cards`;
+  let preview = `${total} cards`;
+  if (sbTotal > 0) preview += ` &middot; Sideboard: ${sbTotal}`;
+  if (commanders.length) preview += ` &middot; Commander: ${cmdNames}`;
+  parsePreview.innerHTML = preview;
 });
 
 // Import button
@@ -82,21 +84,59 @@ btnModalImport.addEventListener('click', async () => {
 
 function parseDeckList(text) {
   const parseCards = arr => arr
-    .map(l => { const m = l.match(/^(\d+)\s+(.+)$/); return m ? { qty: parseInt(m[1]), name: m[2].trim() } : null; })
+    .map(l => {
+      const clean = /^SB:\s*/i.test(l) ? l.replace(/^SB:\s*/i, '') : l;
+      const m = clean.match(/^(\d+)x?\s+(.+)$/);
+      return m ? { qty: parseInt(m[1]), name: m[2].trim() } : null;
+    })
     .filter(Boolean);
-  const lines = text.split('\n').map(l => l.trim()).filter(l => !l.startsWith('//'));
-  const sections = [];
-  let cur = [];
-  for (const line of lines) {
-    if (line === '') { if (cur.length) { sections.push(cur); cur = []; } }
-    else cur.push(line);
+
+  const rawLines = text.split('\n').map(l => l.trim());
+
+  // MTGO "SB: " prefix format
+  if (rawLines.some(l => /^SB:\s/i.test(l))) {
+    const mainLines = rawLines.filter(l => !/^SB:/i.test(l) && !l.startsWith('//') && l !== '');
+    const sbLines   = rawLines.filter(l => /^SB:\s/i.test(l));
+    return { mainboard: parseCards(mainLines), commanders: [], sideboard: parseCards(sbLines) };
   }
-  if (cur.length) sections.push(cur);
-  if (!sections.length) return { mainboard: [], commanders: [] };
-  if (sections.length === 1) return { mainboard: parseCards(sections[0]), commanders: [] };
+
+  // Section-based parsing — keep "// Sideboard" headers, strip other comments
+  const lines = rawLines.filter(l => !/^\/\//.test(l) || /^\/\/\s*sideboard/i.test(l));
+
+  const mainSections = [];
+  const sideboardSections = [];
+  let cur = [];
+  let inSideboard = false;
+
+  for (const line of lines) {
+    if (/^\/\/\s*sideboard/i.test(line) || /^sideboard\s*$/i.test(line)) {
+      if (cur.length) { (inSideboard ? sideboardSections : mainSections).push(cur); cur = []; }
+      inSideboard = true;
+      continue;
+    }
+    if (line === '') {
+      if (cur.length) { (inSideboard ? sideboardSections : mainSections).push(cur); cur = []; }
+      continue;
+    }
+    cur.push(line);
+  }
+  if (cur.length) (inSideboard ? sideboardSections : mainSections).push(cur);
+
+  if (sideboardSections.length > 0) {
+    return {
+      mainboard:  mainSections.flatMap(parseCards),
+      commanders: [],
+      sideboard:  sideboardSections.flatMap(parseCards)
+    };
+  }
+
+  // Original behavior: 1 section = mainboard only, 2+ = main + commander
+  if (!mainSections.length) return { mainboard: [], commanders: [], sideboard: [] };
+  if (mainSections.length === 1) return { mainboard: parseCards(mainSections[0]), commanders: [], sideboard: [] };
   return {
-    mainboard:  sections.slice(0, -1).flatMap(parseCards),
-    commanders: parseCards(sections[sections.length - 1])
+    mainboard:  mainSections.slice(0, -1).flatMap(parseCards),
+    commanders: parseCards(mainSections[mainSections.length - 1]),
+    sideboard:  []
   };
 }
 
@@ -105,7 +145,7 @@ async function importFromText() {
   const text = document.getElementById('deck-text-input').value.trim();
   if (!name) { showModalError('Entrez un nom de deck.'); return; }
   if (!text) { showModalError('Collez une liste de deck.'); return; }
-  const { mainboard, commanders } = parseDeckList(text);
+  const { mainboard, commanders, sideboard } = parseDeckList(text);
   if (!mainboard.length && !commanders.length) { showModalError('Aucune carte reconnue.'); return; }
 
   btnModalImport.disabled = true;
@@ -118,6 +158,7 @@ async function importFromText() {
     commander: commanders.map(c => ({ name: c.name, qty: c.qty })),
     mainboard:  mainboard.map(c => ({ name: c.name, qty: c.qty }))
   };
+  if (sideboard && sideboard.length) payload.sideboard = sideboard.map(c => ({ name: c.name, qty: c.qty }));
 
   try {
     const result = await window.forgeApi.post('/api/decks/import', payload);
@@ -563,29 +604,15 @@ async function populatePlayDecks() {
   }
 
   async function importTextDeck(name, text) {
-    const lines = text.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('//'));
-    const sections = [];
-    let cur = [];
-    for (const line of lines) {
-      if (line === '') { if (cur.length) { sections.push(cur); cur = []; } }
-      else cur.push(line);
-    }
-    if (cur.length) sections.push(cur);
-    function parseCards(arr) {
-      return arr.map(l => {
-        const m = l.match(/^(\d+)x?\s+(.+)/);
-        return m ? { name: m[2].trim(), qty: parseInt(m[1]) } : { name: l, qty: 1 };
-      });
-    }
-    const isCommander = sections.length >= 2;
-    const mainboard   = sections.length >= 2 ? sections.slice(0, -1).flatMap(parseCards) : parseCards(sections[0] || []);
-    const commanders  = sections.length >= 2 ? parseCards(sections[sections.length - 1]) : [];
-    return window.forgeApi.post('/api/decks/import', {
+    const { mainboard, commanders, sideboard } = parseDeckList(text);
+    const payload = {
       name,
-      format: isCommander ? 'Commander' : 'Constructed',
+      format: commanders.length ? 'Commander' : 'Constructed',
       commander: commanders,
       mainboard
-    });
+    };
+    if (sideboard && sideboard.length) payload.sideboard = sideboard;
+    return window.forgeApi.post('/api/decks/import', payload);
   }
 })();
 
@@ -647,7 +674,18 @@ async function startPlayGame() {
     matchState = { game: 1, wins: { 'Player 1': 0, 'AI': 0 },
                    deck1, deck2, format,
                    p1Name: result.player1 || 'Player 1', p2Name: result.player2 || 'AI',
-                   debug: result.debug || false };
+                   debug: result.debug || false,
+                   originalMain1: null, originalSideboard1: null, currentSwaps: { sbIn: [], sbOut: [] } };
+    // For Constructed: fetch deck detail to get sideboard (fire-and-forget)
+    if (format === 'Constructed') {
+      window.forgeApi.get('/api/decks/detail?name=' + encodeURIComponent(deck1) + '&format=constructed')
+        .then(detail => {
+          if (!matchState || matchState.deck1 !== deck1) return;
+          matchState.originalMain1 = (detail.cards || []).filter(c => c.section === 'Main');
+          matchState.originalSideboard1 = (detail.cards || []).filter(c => c.section === 'Sideboard');
+        })
+        .catch(() => {});
+    }
     document.getElementById('play-setup').classList.add('hidden');
     document.getElementById('play-board').classList.remove('hidden');
     const debugBar = document.getElementById('debug-bar');
@@ -957,21 +995,34 @@ async function startNextGame() {
     } catch { /* ignore */ }
   }
 
-  // Step 2: optional commander swap (skip if takes > 10s)
-  winnerEl.textContent = '⏳ Étape 2/3 — Chargement commandants…';
-  let selectedCommanders = null; // array of 1 or 2 names
-  try {
-    const cmdrData = await Promise.race([
-      window.forgeApi.get('/api/game/commanders?deck=' + encodeURIComponent(matchState.deck1)),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('commanders timeout')), 10000))
-    ]);
-    if (cmdrData.commanders && cmdrData.commanders.length > 1) {
-      selectedCommanders = await new Promise(resolve =>
-        showCommanderSwapModal(cmdrData.commanders, cmdrData.designatedCount || 1, resolve));
-    }
-  } catch { /* ignore */ }
-  // Pre-fetch images for selected commanders so command zone shows immediately
-  if (selectedCommanders) selectedCommanders.filter(Boolean).forEach(n => fetchCardImage(n));
+  // Step 2: sideboard swap (Constructed) or commander swap (Commander)
+  let selectedCommanders = null;
+  if (matchState.format === 'Constructed' &&
+      matchState.originalSideboard1 && matchState.originalSideboard1.length > 0) {
+    winnerEl.textContent = '⏳ Étape 2/3 — Sideboard…';
+    const newSwaps = await new Promise(resolve =>
+      showSideboardSwapModal(
+        matchState.originalMain1 || [],
+        matchState.originalSideboard1,
+        matchState.currentSwaps || { sbIn: [], sbOut: [] },
+        resolve
+      )
+    );
+    if (newSwaps !== null) matchState.currentSwaps = newSwaps;
+  } else if (matchState.format === 'Commander') {
+    winnerEl.textContent = '⏳ Étape 2/3 — Chargement commandants…';
+    try {
+      const cmdrData = await Promise.race([
+        window.forgeApi.get('/api/game/commanders?deck=' + encodeURIComponent(matchState.deck1)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('commanders timeout')), 10000))
+      ]);
+      if (cmdrData.commanders && cmdrData.commanders.length > 1) {
+        selectedCommanders = await new Promise(resolve =>
+          showCommanderSwapModal(cmdrData.commanders, cmdrData.designatedCount || 1, resolve));
+      }
+    } catch { /* ignore */ }
+    if (selectedCommanders) selectedCommanders.filter(Boolean).forEach(n => fetchCardImage(n));
+  }
 
   // Step 3: start new game
   winnerEl.textContent = '⏳ Étape 3/3 — Démarrage game ' + matchState.game + '…';
@@ -979,6 +1030,11 @@ async function startNextGame() {
     const body = { deck1: matchState.deck1, deck2: matchState.deck2, format: matchState.format };
     if (selectedCommanders && selectedCommanders[0]) body.commander1 = selectedCommanders[0];
     if (selectedCommanders && selectedCommanders[1]) body.commander2 = selectedCommanders[1];
+    // Pass sideboard swaps for Constructed
+    if (matchState.currentSwaps) {
+      if (matchState.currentSwaps.sbIn.length)  body.sideboardIn  = matchState.currentSwaps.sbIn;
+      if (matchState.currentSwaps.sbOut.length) body.sideboardOut = matchState.currentSwaps.sbOut;
+    }
     // Loser of last game goes first (winner != null: other player is loser; null = concede = player 1 lost)
     const lastWinner = matchState.lastWinner;
     body.goFirstPlayerIndex = (!lastWinner || lastWinner === 'AI') ? 0 : 1;
@@ -1102,6 +1158,210 @@ function showCommanderSwapModal(commanders, designatedCount, onSelect) {
   if (isPartner) box.appendChild(confirmBtn);
   box.appendChild(keepBtn);
   modal.appendChild(box);
+  document.body.appendChild(modal);
+}
+
+// onConfirm receives [{in: name, out: name}] (the swap pairs) or [] (skip)
+// prevSwaps: { sbIn: [name,...], sbOut: [name,...] } — swaps already applied (from previous games)
+// onConfirm: receives { sbIn, sbOut } (the full cumulative swap list)
+function showSideboardSwapModal(originalMain, originalSideboard, prevSwaps, onConfirm) {
+  const { sbIn: prevIn = [], sbOut: prevOut = [] } = prevSwaps || {};
+
+  // Compute effective state from original + accumulated prev swaps
+  const effMain = {};
+  for (const c of originalMain) effMain[c.name] = (effMain[c.name] || 0) + c.qty;
+  const effSide = {};
+  for (const c of originalSideboard) effSide[c.name] = (effSide[c.name] || 0) + c.qty;
+  for (const name of prevOut) {
+    if (effMain[name]) { effMain[name]--; if (!effMain[name]) delete effMain[name]; }
+    effSide[name] = (effSide[name] || 0) + 1;
+  }
+  for (const name of prevIn) {
+    effMain[name] = (effMain[name] || 0) + 1;
+    if (effSide[name]) { effSide[name]--; if (!effSide[name]) delete effSide[name]; }
+  }
+
+  const origTotal = originalMain.reduce((s, c) => s + c.qty, 0);
+
+  // pendingIn/Out: {name -> count} — changes made in this session on top of effective state
+  const pendingIn  = {};
+  const pendingOut = {};
+  const countIn  = () => Object.values(pendingIn).reduce((s, v) => s + v, 0);
+  const countOut = () => Object.values(pendingOut).reduce((s, v) => s + v, 0);
+
+  const modal = document.createElement('div');
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);display:flex;align-items:center;justify-content:center;z-index:9500';
+
+  const box = document.createElement('div');
+  box.style.cssText = 'background:var(--bg-elevated,#1a1830);border:1px solid var(--gold,#c8a96e);border-radius:10px;padding:20px;max-width:860px;width:95%;max-height:86vh;overflow-y:auto;display:flex;flex-direction:column;gap:12px';
+
+  const title = document.createElement('div');
+  title.style.cssText = 'font-size:1rem;font-weight:700;color:var(--gold,#c8a96e);text-align:center';
+  title.textContent = `Sideboard — Game ${matchState ? matchState.game : ''}`;
+  box.appendChild(title);
+
+  const counter = document.createElement('div');
+  counter.style.cssText = 'text-align:center;font-size:0.85rem;font-weight:600;transition:color .15s';
+  box.appendChild(counter);
+
+  const cols = document.createElement('div');
+  cols.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:16px';
+
+  const leftWrap  = document.createElement('div');
+  const rightWrap = document.createElement('div');
+  const mkHeader  = txt => {
+    const h = document.createElement('div');
+    h.style.cssText = 'font-size:0.7rem;font-weight:700;color:var(--text-secondary,#888);text-transform:uppercase;letter-spacing:.07em;margin-bottom:6px';
+    h.textContent = txt;
+    return h;
+  };
+  leftWrap.appendChild(mkHeader('Sideboard → Main deck'));
+  rightWrap.appendChild(mkHeader('Main deck → Sideboard'));
+
+  const leftGrid  = document.createElement('div');
+  const rightGrid = document.createElement('div');
+  leftGrid.style.cssText = rightGrid.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px';
+  leftWrap.appendChild(leftGrid);
+  rightWrap.appendChild(rightGrid);
+  cols.appendChild(leftWrap);
+  cols.appendChild(rightWrap);
+  box.appendChild(cols);
+
+  const btnRow = document.createElement('div');
+  btnRow.style.cssText = 'display:flex;justify-content:center;gap:10px;margin-top:4px';
+  const confirmBtn = document.createElement('button');
+  confirmBtn.className = 'btn-primary';
+  const skipBtn = document.createElement('button');
+  skipBtn.className = 'btn-secondary';
+  skipBtn.textContent = 'Passer (sans sideboard)';
+  btnRow.appendChild(skipBtn);
+  btnRow.appendChild(confirmBtn);
+  box.appendChild(btnRow);
+  modal.appendChild(box);
+
+  function buildResult() {
+    const inArr = [], outArr = [];
+    for (const [name, qty] of Object.entries(pendingIn))  for (let i = 0; i < qty; i++) inArr.push(name);
+    for (const [name, qty] of Object.entries(pendingOut)) for (let i = 0; i < qty; i++) outArr.push(name);
+    return { sbIn: [...prevIn, ...inArr], sbOut: [...prevOut, ...outArr] };
+  }
+
+  function updateCounter() {
+    const n = countIn(), m = countOut();
+    // Total deck size: origTotal + prevIn.length - prevOut.length + n - m
+    const netChange = prevIn.length - prevOut.length + n - m;
+    const deckSize  = origTotal + netChange;
+    // Rule: can't end up with fewer cards than started (deckSize >= origTotal)
+    const invalid = deckSize < origTotal;
+    counter.style.color = invalid ? '#f44336' : n === 0 && m === 0 ? 'var(--text-secondary,#888)' : '#4caf50';
+    if (invalid) {
+      counter.textContent = `⚠ Deck trop petit (${deckSize} < ${origTotal}) — choisissez ${origTotal - deckSize} carte${origTotal - deckSize > 1 ? 's' : ''} de plus`;
+    } else if (n === 0 && m === 0) {
+      const prev = prevIn.length;
+      counter.textContent = prev > 0
+        ? `${prev} échange${prev > 1 ? 's' : ''} de la game précédente — deck: ${deckSize}`
+        : 'Cliquez sur des cartes pour les échanger';
+    } else {
+      counter.textContent = `+${n} entrent · −${m} sortent · deck: ${deckSize} carte${deckSize !== 1 ? 's' : ''}` +
+        (n > m ? `  (+${n - m} extra)` : '');
+    }
+    confirmBtn.disabled = invalid;
+    const totalChanges = n + m + prevIn.length + prevOut.length;
+    confirmBtn.textContent = totalChanges > 0 ? `Confirmer (deck: ${deckSize})` : 'Confirmer sans changement';
+  }
+
+  function mkCardTile(name, selected, available, onClick, side) {
+    const tile = document.createElement('div');
+    tile.dataset.card = name;
+    tile.style.cssText = 'width:72px;cursor:pointer;text-align:center;border-radius:4px;transition:outline .1s;outline:' +
+      (selected ? '2px solid ' + (side === 'in' ? '#4caf50' : '#ff9800') : '2px solid transparent');
+    if (!available) tile.style.opacity = '0.35';
+
+    const sf = scryfallCards.get(name);
+    const img = sfFaceImg(sf, name);
+    if (img) {
+      const i = document.createElement('img');
+      i.src = img; i.alt = name; i.style.cssText = 'width:72px;border-radius:4px;display:block;';
+      tile.appendChild(i);
+    } else {
+      const txt = document.createElement('div');
+      txt.style.cssText = 'width:72px;min-height:100px;background:var(--bg-surface,#2a2640);border-radius:4px;display:flex;align-items:center;justify-content:center;padding:4px;font-size:0.55rem;word-break:break-word;line-height:1.2;color:var(--text-primary,#e0d8f0)';
+      txt.textContent = name;
+      tile.appendChild(txt);
+      fetchCardImage(name).then(u => {
+        if (!u) return;
+        tile.innerHTML = '';
+        const i2 = document.createElement('img');
+        i2.src = u; i2.alt = name; i2.style.cssText = 'width:72px;border-radius:4px;display:block;';
+        tile.appendChild(i2);
+        const lbl2 = document.createElement('div');
+        lbl2.style.cssText = 'font-size:0.55rem;color:var(--text-muted,#888);margin-top:2px';
+        lbl2.textContent = name;
+        tile.appendChild(lbl2);
+      });
+    }
+    const lbl = document.createElement('div');
+    lbl.style.cssText = 'font-size:0.55rem;color:var(--text-muted,#888);margin-top:2px;line-height:1.2;overflow:hidden;max-height:2.4em';
+    lbl.textContent = name;
+    tile.appendChild(lbl);
+
+    if (available || selected) tile.addEventListener('click', onClick);
+    return tile;
+  }
+
+  function renderPanels() {
+    leftGrid.innerHTML = '';
+    rightGrid.innerHTML = '';
+
+    const sideEntries = Object.entries(effSide).sort(([a], [b]) => a.localeCompare(b));
+    for (const [name, qty] of sideEntries) {
+      const sel = pendingIn[name] || 0;
+      for (let copy = 0; copy < qty; copy++) {
+        const isSelected = copy < sel;
+        const tile = mkCardTile(name, isSelected, copy >= sel, () => {
+          if ((pendingIn[name] || 0) < qty) pendingIn[name] = (pendingIn[name] || 0) + 1;
+          else { pendingIn[name]--; if (!pendingIn[name]) delete pendingIn[name]; }
+          renderPanels(); updateCounter();
+        }, 'in');
+        leftGrid.appendChild(tile);
+      }
+    }
+    if (!sideEntries.length) {
+      const empty = document.createElement('div');
+      empty.style.cssText = 'color:var(--text-secondary,#888);font-size:0.75rem;padding:8px';
+      empty.textContent = 'Sideboard vide';
+      leftGrid.appendChild(empty);
+    }
+
+    const mainEntries = Object.entries(effMain).sort(([a], [b]) => a.localeCompare(b));
+    for (const [name, qty] of mainEntries) {
+      const sel = pendingOut[name] || 0;
+      for (let copy = 0; copy < qty; copy++) {
+        const isSelected = copy < sel;
+        const tile = mkCardTile(name, isSelected, copy >= sel, () => {
+          if ((pendingOut[name] || 0) < qty) pendingOut[name] = (pendingOut[name] || 0) + 1;
+          else { pendingOut[name]--; if (!pendingOut[name]) delete pendingOut[name]; }
+          renderPanels(); updateCounter();
+        }, 'out');
+        rightGrid.appendChild(tile);
+      }
+    }
+  }
+
+  const done = (result) => {
+    modal.remove();
+    document.removeEventListener('keydown', onKey);
+    onConfirm(result);
+  };
+
+  confirmBtn.addEventListener('click', () => done(buildResult()));
+  skipBtn.addEventListener('click', () => done({ sbIn: prevIn, sbOut: prevOut }));
+  modal.addEventListener('click', e => { if (e.target === modal) done({ sbIn: prevIn, sbOut: prevOut }); });
+  const onKey = e => { if (e.key === 'Escape') done({ sbIn: prevIn, sbOut: prevOut }); };
+  document.addEventListener('keydown', onKey);
+
+  renderPanels();
+  updateCounter();
   document.body.appendChild(modal);
 }
 

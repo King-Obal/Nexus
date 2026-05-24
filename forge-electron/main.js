@@ -223,12 +223,12 @@ app.whenReady().then(function() {
       var mainboard = Object.values(d.mainboard || {}).map(function(e) {
         return { name: forgeName(e.card.name), qty: e.quantity };
       });
-      return postJson('/api/decks/import', {
-        name: nameOverride || d.name,
-        format: format,
-        commander: commanders,
-        mainboard: mainboard
+      var sideboard = Object.values(d.sideboard || {}).map(function(e) {
+        return { name: forgeName(e.card.name), qty: e.quantity };
       });
+      var payload = { name: nameOverride || d.name, format: format, commander: commanders, mainboard: mainboard };
+      if (sideboard.length) payload.sideboard = sideboard;
+      return postJson('/api/decks/import', payload);
     });
   });
 

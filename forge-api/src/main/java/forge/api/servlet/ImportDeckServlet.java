@@ -115,6 +115,21 @@ public class ImportDeckServlet extends HttpServlet {
             mainboardCount += qty;
         }
 
+        // Add sideboard cards (Constructed only)
+        List<?> sideboardRaw = (List<?>) body.get("sideboard");
+        int sideboardCount = 0;
+        if (sideboardRaw != null) {
+            for (Object entry : sideboardRaw) {
+                if (!(entry instanceof Map)) continue;
+                Map<?, ?> card = (Map<?, ?>) entry;
+                String cardName = getString(card, "name");
+                int qty = getInt(card, "qty", 1);
+                if (cardName == null || cardName.trim().isEmpty()) continue;
+                deck.getOrCreate(DeckSection.Sideboard).add(forgeName(cardName.trim()), qty);
+                sideboardCount += qty;
+            }
+        }
+
         // Save to appropriate storage
         IStorage<Deck> storage = isCommander
                 ? FModel.getDecks().getCommander()
@@ -131,6 +146,7 @@ public class ImportDeckServlet extends HttpServlet {
         result.put("name", deck.getName());
         result.put("commanderCount", commanderCount);
         result.put("mainboardCount", mainboardCount);
+        result.put("sideboardCount", sideboardCount);
         mapper.writeValue(resp.getWriter(), result);
     }
 

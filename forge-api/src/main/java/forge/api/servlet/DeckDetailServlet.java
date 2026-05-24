@@ -81,6 +81,17 @@ public class DeckDetailServlet extends HttpServlet {
             }
         }
 
+        // Sideboard section
+        if (deck.has(DeckSection.Sideboard)) {
+            for (Map.Entry<PaperCard, Integer> e : deck.get(DeckSection.Sideboard)) {
+                Map<String, Object> card = new LinkedHashMap<>();
+                card.put("name", e.getKey().getName());
+                card.put("qty", e.getValue());
+                card.put("section", "Sideboard");
+                cards.add(card);
+            }
+        }
+
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("name", deck.getName());
         result.put("cards", cards);

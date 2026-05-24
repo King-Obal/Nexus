@@ -135,6 +135,18 @@ public class GameServlet extends HttpServlet {
         int goFirstPlayerIndex = body.get("goFirstPlayerIndex") instanceof Number n ? n.intValue() : -1;
         boolean isDebug = Boolean.TRUE.equals(body.get("debug"));
 
+        // Sideboard swaps: sideboardIn = names to add to main, sideboardOut = names to remove from main
+        List<String> sideboardIn = new ArrayList<>();
+        List<String> sideboardOut = new ArrayList<>();
+        Object inRaw = body.get("sideboardIn");
+        Object outRaw = body.get("sideboardOut");
+        if (inRaw instanceof List) {
+            for (Object o : (List<?>) inRaw) if (o instanceof String) sideboardIn.add((String) o);
+        }
+        if (outRaw instanceof List) {
+            for (Object o : (List<?>) outRaw) if (o instanceof String) sideboardOut.add((String) o);
+        }
+
         if (deck1Name == null || deck1Name.isEmpty() || deck2Name == null || deck2Name.isEmpty()) {
             resp.setStatus(400);
             mapper.writeValue(resp.getWriter(), error("'deck1' and 'deck2' are required"));
@@ -171,12 +183,48 @@ public class GameServlet extends HttpServlet {
         final String fCommander2Name = commander2Name;
         final boolean fIsDebug = isDebug;
         final int fGoFirstPlayerIndex = goFirstPlayerIndex;
+        final List<String> fSideboardIn = sideboardIn;
+        final List<String> fSideboardOut = sideboardOut;
 
         // Everything game-related runs in background thread
         Thread gameThread = new Thread(() -> {
             // Track if we temporarily removed a card from the main deck (to restore after game)
             PaperCard[] removedFromMain = {null};
+            // Track sideboard swap restores
+            List<PaperCard> sbAddedToMain = new ArrayList<>();
+            List<PaperCard> sbRemovedFromMain = new ArrayList<>();
             try {
+                // Apply sideboard swaps to deck (temporarily)
+                if (!fSideboardOut.isEmpty()) {
+                    for (String outName : fSideboardOut) {
+                        if (fd1.getMain() != null) {
+                            PaperCard found = null;
+                            for (PaperCard pc : fd1.getMain().toFlatList()) {
+                                if (outName.equals(pc.getName())) { found = pc; break; }
+                            }
+                            if (found != null) {
+                                fd1.getMain().remove(found);
+                                sbRemovedFromMain.add(found);
+                            }
+                        }
+                    }
+                }
+                if (!fSideboardIn.isEmpty()) {
+                    for (String inName : fSideboardIn) {
+                        PaperCard found = null;
+                        if (fd1.has(DeckSection.Sideboard)) {
+                            for (PaperCard pc : fd1.get(DeckSection.Sideboard).toFlatList()) {
+                                if (inName.equals(pc.getName())) { found = pc; break; }
+                            }
+                        }
+                        if (found == null) found = StaticData.instance().getCommonCards().getCard(inName);
+                        if (found != null) {
+                            fd1.getOrCreate(DeckSection.Main).add(found, 1);
+                            sbAddedToMain.add(found);
+                        }
+                    }
+                }
+
                 String p1Name = "Player 1";
                 String p2Name = "AI";
                 LobbyPlayerApi lp1 = new LobbyPlayerApi(p1Name, session, 0);
@@ -259,6 +307,9 @@ public class GameServlet extends HttpServlet {
             } finally {
                 // Restore main deck if a card was temporarily removed for commander override
                 if (removedFromMain[0] != null) fd1.getMain().add(removedFromMain[0]);
+                // Restore sideboard swaps
+                for (PaperCard pc : sbAddedToMain) { if (fd1.getMain() != null) fd1.getMain().remove(pc); }
+                for (PaperCard pc : sbRemovedFromMain) { fd1.getOrCreate(DeckSection.Main).add(pc, 1); }
                 session.setGameOver(true);
                 session.receiveDecision(Map.of("choice", "pass"));
             }
