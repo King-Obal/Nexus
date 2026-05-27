@@ -98,7 +98,7 @@ public class GameServlet extends HttpServlet {
             handleGetCommanders(req, resp);
         } else if (uri.contains("/game/") && uri.endsWith("/state")) {
             String id = extractId(uri, "/state");
-            handleState(id, resp);
+            handleState(id, req, resp);
         } else {
             resp.setStatus(404);
             mapper.writeValue(resp.getWriter(), error("Unknown endpoint: " + uri));
@@ -143,6 +143,8 @@ public class GameServlet extends HttpServlet {
         int goFirstPlayerIndex = body.get("goFirstPlayerIndex") instanceof Number n ? n.intValue() : -1;
         boolean isDebug = Boolean.TRUE.equals(body.get("debug"));
         boolean isPvp = Boolean.TRUE.equals(body.get("pvp"));
+        String player1Name = getString(body, "player1Name");
+        String player2Name = getString(body, "player2Name");
 
         // Sideboard swaps: sideboardIn = names to add to main, sideboardOut = names to remove from main
         List<String> sideboardIn = new ArrayList<>();
@@ -184,6 +186,8 @@ public class GameServlet extends HttpServlet {
         GameSession session = GameSessionManager.getInstance().create();
         if (isDebug) session.setDebug(true);
         if (isPvp) session.setPvp(true);
+        if (player1Name != null && !player1Name.isBlank()) session.setPlayerName(0, player1Name);
+        if (player2Name != null && !player2Name.isBlank()) session.setPlayerName(1, player2Name);
         if (goFirstPlayerIndex >= 0) session.setForcedFirstPlayerIndex(goFirstPlayerIndex);
 
         final Deck fd1 = d1, fd2 = d2;
@@ -236,8 +240,8 @@ public class GameServlet extends HttpServlet {
                     }
                 }
 
-                String p1Name = "Player 1";
-                String p2Name = "AI";
+                String p1Name = session.getPlayerName(0);
+                String p2Name = fIsPvp ? session.getPlayerName(1) : "AI";
                 LobbyPlayerApi lp1 = new LobbyPlayerApi(p1Name, session, 0);
 
                 RegisteredPlayer rp1 = fIsCommander ? RegisteredPlayer.forCommander(fd1) : new RegisteredPlayer(fd1);
@@ -334,8 +338,8 @@ public class GameServlet extends HttpServlet {
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("sessionId", session.getId());
-        result.put("player1", "Player 1");
-        result.put("player2", isPvp ? "Player 2" : "AI");
+        result.put("player1", session.getPlayerName(0));
+        result.put("player2", isPvp ? session.getPlayerName(1) : "AI");
         result.put("format", gameType.name());
         result.put("deck1", d1.getName());
         result.put("deck2", d2.getName());
@@ -346,14 +350,19 @@ public class GameServlet extends HttpServlet {
 
     // ── GET /api/game/{id}/state ─────────────────────────────────────────────
 
-    private void handleState(String id, HttpServletResponse resp) throws IOException {
+    private void handleState(String id, HttpServletRequest req, HttpServletResponse resp) throws IOException {
         GameSession session = GameSessionManager.getInstance().get(id);
         if (session == null) {
             resp.setStatus(404);
             mapper.writeValue(resp.getWriter(), error("Session not found: " + id));
             return;
         }
-        mapper.writeValue(resp.getWriter(), session.toStateMap());
+        int viewingPlayer = -1;
+        String playerParam = req.getParameter("player");
+        if (playerParam != null) {
+            try { viewingPlayer = Integer.parseInt(playerParam); } catch (NumberFormatException ignored) {}
+        }
+        mapper.writeValue(resp.getWriter(), session.toStateMap(viewingPlayer));
     }
 
     // ── POST /api/game/{id}/respond ──────────────────────────────────────────

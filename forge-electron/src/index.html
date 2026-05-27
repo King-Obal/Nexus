@@ -110,85 +110,151 @@
       <div id="play-setup" class="panel play-setup-panel">
         <h2>Interactive Play</h2>
 
-        <!-- Format picker -->
-        <div class="format-picker">
-          <button class="format-btn active" data-fmt="Commander">
-            <span class="fmt-icon">⚔</span>
-            <span class="fmt-name">Commander</span>
-            <span class="fmt-desc">100 cartes · singleton</span>
-          </button>
-          <button class="format-btn" data-fmt="Constructed">
-            <span class="fmt-icon">⚡</span>
-            <span class="fmt-name">Constructed 60</span>
-            <span class="fmt-desc">Modern · Standard · Legacy</span>
-          </button>
-        </div>
-        <select id="play-format" class="format-select" style="display:none">
-          <option value="Commander">Commander</option>
-          <option value="Constructed">Constructed</option>
-        </select>
+        <!-- ── Section locale (vs IA) ────────────────────────────────────── -->
+        <div id="local-play-section">
 
-        <div class="play-setup-row">
-          <div class="player-slot">
-            <label>Player 1 — Deck</label>
-            <div class="deck-select-row">
-              <select id="play-deck1" class="deck-select"></select>
-              <button class="btn-import-inline" data-target="1" title="Importer un deck">＋</button>
+          <!-- Format picker -->
+          <div class="format-picker">
+            <button class="format-btn active" data-fmt="Commander">
+              <span class="fmt-icon">⚔</span>
+              <span class="fmt-name">Commander</span>
+              <span class="fmt-desc">100 cartes · singleton</span>
+            </button>
+            <button class="format-btn" data-fmt="Constructed">
+              <span class="fmt-icon">⚡</span>
+              <span class="fmt-name">Constructed 60</span>
+              <span class="fmt-desc">Modern · Standard · Legacy</span>
+            </button>
+          </div>
+          <select id="play-format" class="format-select" style="display:none">
+            <option value="Commander">Commander</option>
+            <option value="Constructed">Constructed</option>
+          </select>
+
+          <div class="play-setup-row">
+            <div class="player-slot">
+              <label>Player 1 — Deck</label>
+              <div class="deck-select-row">
+                <select id="play-deck1" class="deck-select"></select>
+                <button class="btn-import-inline" data-target="1" title="Importer un deck">＋</button>
+              </div>
+            </div>
+            <div class="vs-badge">VS</div>
+            <div class="player-slot">
+              <label>Player 2 — Deck</label>
+              <div class="deck-select-row">
+                <select id="play-deck2" class="deck-select"></select>
+                <button class="btn-import-inline" data-target="2" title="Importer un deck">＋</button>
+              </div>
             </div>
           </div>
-          <div class="vs-badge">VS</div>
-          <div class="player-slot">
-            <label>Player 2 — Deck</label>
-            <div class="deck-select-row">
-              <select id="play-deck2" class="deck-select"></select>
-              <button class="btn-import-inline" data-target="2" title="Importer un deck">＋</button>
+
+          <!-- Inline import panel -->
+          <div id="play-import-panel" class="play-import-panel hidden">
+            <div class="play-import-tabs">
+              <button class="play-import-tab active" data-mode="moxfield">🔗 Moxfield URL</button>
+              <button class="play-import-tab" data-mode="text">📋 Coller une liste</button>
+            </div>
+            <div class="play-import-body">
+              <input id="play-import-name" class="play-import-input" type="text" placeholder="Nom du deck (requis pour liste, auto Moxfield)">
+              <div id="play-import-moxfield-wrap">
+                <input id="play-import-url" class="play-import-input" type="text" placeholder="https://moxfield.com/decks/…">
+              </div>
+              <div id="play-import-text-wrap" class="hidden">
+                <textarea id="play-import-text" class="play-import-textarea" placeholder="4 Lightning Bolt&#10;4 Llanowar Elves&#10;...&#10;&#10;// Sideboard (Constructed)&#10;2 Tormod's Crypt&#10;&#10;— OU Commander —&#10;1 Slimefoot and Squee"></textarea>
+              </div>
+              <div class="play-import-footer">
+                <span id="play-import-status" class="play-import-status"></span>
+                <button id="btn-play-import-ok" class="btn-primary btn-sm">Importer</button>
+                <button id="btn-play-import-cancel" class="btn-secondary btn-sm">Annuler</button>
+              </div>
             </div>
           </div>
-        </div>
 
-        <!-- Inline import panel (shared, repositions under the clicked slot) -->
-        <div id="play-import-panel" class="play-import-panel hidden">
-          <div class="play-import-tabs">
-            <button class="play-import-tab active" data-mode="moxfield">🔗 Moxfield URL</button>
-            <button class="play-import-tab" data-mode="text">📋 Coller une liste</button>
+          <div class="debug-toggle-row">
+            <label class="debug-toggle-label">
+              <input type="checkbox" id="play-debug-mode">
+              🔧 Mode debug (mana infini, adversaire passif)
+            </label>
           </div>
-          <div class="play-import-body">
-            <input id="play-import-name" class="play-import-input" type="text" placeholder="Nom du deck (requis pour liste, auto Moxfield)">
-            <div id="play-import-moxfield-wrap">
-              <input id="play-import-url" class="play-import-input" type="text" placeholder="https://moxfield.com/decks/…">
-            </div>
-            <div id="play-import-text-wrap" class="hidden">
-              <textarea id="play-import-text" class="play-import-textarea" placeholder="4 Lightning Bolt&#10;4 Llanowar Elves&#10;...&#10;&#10;// Sideboard (Constructed)&#10;2 Tormod's Crypt&#10;&#10;— OU Commander —&#10;1 Slimefoot and Squee"></textarea>
-            </div>
-            <div class="play-import-footer">
-              <span id="play-import-status" class="play-import-status"></span>
-              <button id="btn-play-import-ok" class="btn-primary btn-sm">Importer</button>
-              <button id="btn-play-import-cancel" class="btn-secondary btn-sm">Annuler</button>
-            </div>
+          <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+            <button id="btn-play-start" class="btn-primary">▶ Start Game</button>
+            <button id="btn-show-online" class="btn-secondary">🌐 Jouer en ligne</button>
           </div>
-        </div>
 
-        <div class="debug-toggle-row">
-          <label class="debug-toggle-label">
-            <input type="checkbox" id="play-pvp-mode">
-            🌐 Mode PvP en ligne (votre pote joue comme Joueur 2 via Hamachi)
-          </label>
-        </div>
-        <div class="debug-toggle-row">
-          <label class="debug-toggle-label">
-            <input type="checkbox" id="play-debug-mode">
-            🔧 Mode debug (mana infini, adversaire passif)
-          </label>
-        </div>
-        <button id="btn-play-start" class="btn-primary">▶ Start Game</button>
+        </div><!-- /#local-play-section -->
 
-        <!-- Guest join panel (shown when in guest mode) -->
-        <div id="guest-join-panel" class="hidden" style="margin-top:18px;padding:14px;border:1px solid var(--gold,#c8a96e);border-radius:8px;background:rgba(0,0,0,0.25)">
-          <div style="font-weight:700;margin-bottom:8px;color:var(--gold,#c8a96e)">Mode Invité</div>
-          <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:10px">Connecté au serveur de l'hôte. Cliquez pour rejoindre la partie en cours.</div>
-          <button id="btn-guest-join" class="btn-primary">🎮 Rejoindre la partie</button>
-          <span id="guest-join-status" style="margin-left:10px;font-size:0.8rem;color:var(--text-secondary)"></span>
-        </div>
+        <!-- ── Section en ligne (salon) ──────────────────────────────────── -->
+        <div id="online-section" class="hidden">
+
+          <!-- Landing : pseudo + créer / rejoindre -->
+          <div id="lobby-landing">
+            <div style="margin-bottom:14px">
+              <label style="display:block;font-size:0.8rem;color:var(--text-secondary);margin-bottom:4px">Pseudo</label>
+              <input id="lobby-nickname" type="text" maxlength="20" placeholder="Votre pseudo…"
+                     style="width:200px;padding:6px 10px;border-radius:6px;border:1px solid rgba(200,169,110,0.4);background:var(--bg-card,#1e2d3d);color:var(--text-primary,#e8e0d0);font-size:0.9rem">
+            </div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap">
+              <!-- Créer -->
+              <div style="flex:1;min-width:160px;padding:14px;border:1px solid rgba(200,169,110,0.3);border-radius:8px;background:rgba(0,0,0,0.2)">
+                <div style="font-weight:700;margin-bottom:10px;color:var(--gold,#c8a96e)">+ Créer une salle</div>
+                <select id="lobby-format-select" style="width:100%;margin-bottom:10px;padding:5px 8px;border-radius:6px;border:1px solid rgba(200,169,110,0.4);background:var(--bg-card,#1e2d3d);color:var(--text-primary,#e8e0d0)">
+                  <option value="Commander">Commander</option>
+                  <option value="Constructed">Constructed 60</option>
+                </select>
+                <button id="btn-lobby-create" class="btn-primary btn-sm" style="width:100%">Créer</button>
+              </div>
+              <!-- Rejoindre -->
+              <div style="flex:1;min-width:160px;padding:14px;border:1px solid rgba(200,169,110,0.3);border-radius:8px;background:rgba(0,0,0,0.2)">
+                <div style="font-weight:700;margin-bottom:10px;color:var(--text-secondary)">→ Rejoindre</div>
+                <input id="lobby-join-code" type="text" maxlength="6" placeholder="Ex : NEXB72"
+                       style="width:100%;margin-bottom:10px;padding:6px 10px;border-radius:6px;border:1px solid rgba(200,169,110,0.4);background:var(--bg-card,#1e2d3d);color:var(--text-primary,#e8e0d0);font-size:1rem;text-transform:uppercase;letter-spacing:0.15em;box-sizing:border-box">
+                <button id="btn-lobby-join" class="btn-secondary btn-sm" style="width:100%">Rejoindre</button>
+              </div>
+            </div>
+            <div id="lobby-landing-error" style="margin-top:8px;font-size:0.8rem;color:#e57373;min-height:16px"></div>
+          </div>
+
+          <!-- Salon (affiché après create/join) -->
+          <div id="lobby-room" class="hidden">
+            <!-- Code + copie -->
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:16px">
+              <span style="font-size:0.8rem;color:var(--text-secondary)">Code :</span>
+              <b id="lobby-code-display" style="font-size:1.3rem;letter-spacing:0.2em;color:var(--gold,#c8a96e)">------</b>
+              <button id="btn-lobby-copy" title="Copier le code"
+                      style="padding:3px 8px;border-radius:5px;border:1px solid rgba(200,169,110,0.4);background:transparent;color:var(--text-secondary);cursor:pointer;font-size:0.85rem">📋</button>
+              <span id="lobby-copy-hint" style="font-size:0.75rem;color:#4caf50;display:none">Copié !</span>
+            </div>
+
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:14px">
+              <!-- Slot joueur (vous) -->
+              <div id="lobby-self-card" style="flex:1;min-width:180px;padding:12px;border:1px solid var(--gold,#c8a96e);border-radius:8px;background:rgba(0,0,0,0.25)">
+                <div style="font-weight:700;margin-bottom:8px">Vous — <span id="lobby-self-name" style="color:var(--gold,#c8a96e)"></span></div>
+                <select id="lobby-self-deck"
+                        style="width:100%;margin-bottom:10px;padding:5px 8px;border-radius:6px;border:1px solid rgba(200,169,110,0.4);background:var(--bg-card,#1e2d3d);color:var(--text-primary,#e8e0d0)">
+                  <option value="">— Choisir un deck —</option>
+                </select>
+                <div id="lobby-self-ready-row">
+                  <button id="btn-lobby-ready" class="btn-primary btn-sm" disabled>✓ Je suis prêt !</button>
+                  <span id="lobby-self-ready-badge" style="display:none;margin-left:8px;color:#4caf50;font-size:0.85rem">✅ Prêt</span>
+                </div>
+              </div>
+              <!-- Slot adversaire -->
+              <div id="lobby-opp-card" style="flex:1;min-width:180px;padding:12px;border:1px solid rgba(200,169,110,0.2);border-radius:8px;background:rgba(0,0,0,0.15)">
+                <div id="lobby-opp-info" style="color:var(--text-secondary);font-size:0.85rem">⏳ En attente d'un adversaire…</div>
+              </div>
+            </div>
+
+            <div id="lobby-room-status" style="font-size:0.85rem;color:var(--text-secondary);min-height:18px;margin-bottom:8px"></div>
+            <button id="btn-lobby-leave" class="btn-secondary btn-sm">↩ Quitter la salle</button>
+          </div>
+
+          <div style="margin-top:14px">
+            <button id="btn-online-back" class="btn-secondary btn-sm">← Retour au jeu local</button>
+          </div>
+
+        </div><!-- /#online-section -->
+
         <div id="play-error" class="modal-error hidden"></div>
       </div>
 

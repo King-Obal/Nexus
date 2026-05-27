@@ -683,6 +683,12 @@ let selectedHandCards = []; // for future multi-select (currently single)
 let pvpPlayerIndex = 0;   // 0 = host/local, 1 = guest
 let isPvpGame = false;    // true when current game is PvP mode
 
+// ── Lobby state ───────────────────────────────────────────────────────────
+let lobbyId = null;
+let lobbyPlayerIndex = 0;
+let lobbyPollTimer = null;
+let lobbyPrevSessionId = null;
+
 // Load mode from main process (async, runs at startup)
 (async () => {
   try {
@@ -823,6 +829,317 @@ async function guestJoinGame() {
   } finally {
     if (btn) btn.disabled = false;
   }
+}
+
+// ── Lobby / Online ────────────────────────────────────────────────────────────
+
+document.getElementById('btn-show-online').addEventListener('click', showOnlineSection);
+document.getElementById('btn-online-back').addEventListener('click', showLocalSection);
+document.getElementById('btn-lobby-create').addEventListener('click', createLobby);
+document.getElementById('btn-lobby-join').addEventListener('click', () => {
+  joinLobby(document.getElementById('lobby-join-code').value.trim());
+});
+document.getElementById('lobby-join-code').addEventListener('keydown', e => {
+  if (e.key === 'Enter') joinLobby(document.getElementById('lobby-join-code').value.trim());
+});
+document.getElementById('btn-lobby-ready').addEventListener('click', setLobbyReady);
+document.getElementById('btn-lobby-leave').addEventListener('click', leaveLobby);
+document.getElementById('btn-lobby-copy').addEventListener('click', () => {
+  const code = document.getElementById('lobby-code-display').textContent;
+  navigator.clipboard?.writeText(code).catch(() => {});
+  const hint = document.getElementById('lobby-copy-hint');
+  if (hint) { hint.style.display = 'inline'; setTimeout(() => { hint.style.display = 'none'; }, 1800); }
+});
+document.getElementById('lobby-nickname').addEventListener('change', () => {
+  const nick = document.getElementById('lobby-nickname').value.trim();
+  if (nick) localStorage.setItem('nexus-nickname', nick);
+});
+document.getElementById('lobby-self-deck').addEventListener('change', () => {
+  const btn = document.getElementById('btn-lobby-ready');
+  const badge = document.getElementById('lobby-self-ready-badge');
+  const alreadyReady = badge && badge.style.display !== 'none';
+  if (btn && !alreadyReady) btn.disabled = !document.getElementById('lobby-self-deck').value;
+});
+
+function showOnlineSection() {
+  document.getElementById('local-play-section').classList.add('hidden');
+  document.getElementById('online-section').classList.remove('hidden');
+  const saved = localStorage.getItem('nexus-nickname');
+  if (saved) document.getElementById('lobby-nickname').value = saved;
+}
+
+function showLocalSection() {
+  stopLobbyPoll();
+  document.getElementById('online-section').classList.add('hidden');
+  document.getElementById('local-play-section').classList.remove('hidden');
+  resetLobbyUI();
+  lobbyId = null;
+  lobbyPlayerIndex = 0;
+  lobbyPrevSessionId = null;
+}
+
+function resetLobbyUI() {
+  document.getElementById('lobby-landing').classList.remove('hidden');
+  document.getElementById('lobby-room').classList.add('hidden');
+  document.getElementById('lobby-landing-error').textContent = '';
+  document.getElementById('lobby-room-status').textContent = '';
+  document.getElementById('lobby-code-display').textContent = '------';
+  document.getElementById('lobby-self-deck').innerHTML = '<option value="">— Choisir un deck —</option>';
+  const btn = document.getElementById('btn-lobby-ready');
+  if (btn) { btn.disabled = true; btn.textContent = '✓ Je suis prêt !'; }
+  const badge = document.getElementById('lobby-self-ready-badge');
+  if (badge) badge.style.display = 'none';
+  document.getElementById('lobby-opp-info').textContent = '⏳ En attente d\'un adversaire…';
+}
+
+async function createLobby() {
+  const nickname = document.getElementById('lobby-nickname').value.trim() || 'Joueur 1';
+  const format   = document.getElementById('lobby-format-select').value;
+  const errEl    = document.getElementById('lobby-landing-error');
+  const btn      = document.getElementById('btn-lobby-create');
+  errEl.textContent = '';
+  btn.disabled = true; btn.textContent = '⏳…';
+  try {
+    const res = await window.forgeApi.post('/api/lobby/create', { playerName: nickname, format });
+    lobbyId = res.id;
+    lobbyPlayerIndex = 0;
+    lobbyPrevSessionId = null;
+    localStorage.setItem('nexus-nickname', nickname);
+    await openLobbyRoom(res.lobby, nickname);
+    startLobbyPoll();
+  } catch (e) {
+    errEl.textContent = 'Erreur : ' + (e.message || e);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Créer';
+  }
+}
+
+async function joinLobby(code) {
+  if (!code || code.length < 2) return;
+  const nickname = document.getElementById('lobby-nickname').value.trim() || 'Joueur 2';
+  const errEl    = document.getElementById('lobby-landing-error');
+  const btn      = document.getElementById('btn-lobby-join');
+  errEl.textContent = '';
+  btn.disabled = true; btn.textContent = '⏳…';
+  try {
+    const res = await window.forgeApi.post('/api/lobby/' + code.toUpperCase() + '/join', { playerName: nickname });
+    lobbyId = (res.lobby && res.lobby.id) || code.toUpperCase();
+    lobbyPlayerIndex = 1;
+    lobbyPrevSessionId = res.lobby.sessionId || null;
+    localStorage.setItem('nexus-nickname', nickname);
+    await openLobbyRoom(res.lobby, nickname);
+    startLobbyPoll();
+  } catch (e) {
+    errEl.textContent = 'Erreur : ' + (e.message || e);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Rejoindre';
+  }
+}
+
+async function openLobbyRoom(lobby, myName) {
+  document.getElementById('lobby-landing').classList.add('hidden');
+  document.getElementById('lobby-room').classList.remove('hidden');
+  document.getElementById('lobby-code-display').textContent = lobby.id || lobbyId;
+  document.getElementById('lobby-self-name').textContent = myName;
+
+  const fmt = (lobby.format || 'Commander').replace(' 60', '').toLowerCase();
+  const deckSelect = document.getElementById('lobby-self-deck');
+  deckSelect.innerHTML = '<option value="">— Choisir un deck —</option>';
+  try {
+    const decks = await window.forgeApi.get('/api/decks?format=' + fmt);
+    for (const d of decks) {
+      const opt = document.createElement('option');
+      opt.value = d.name; opt.textContent = d.name;
+      deckSelect.appendChild(opt);
+    }
+  } catch {}
+  document.getElementById('btn-lobby-ready').disabled = !deckSelect.value;
+
+  renderLobbyRoom(lobby);
+}
+
+function renderLobbyRoom(lobby) {
+  const oppEl    = document.getElementById('lobby-opp-info');
+  const statusEl = document.getElementById('lobby-room-status');
+
+  const players = lobby.players || [];
+  const oppIdx  = lobbyPlayerIndex === 0 ? 1 : 0;
+  const opp     = players[oppIdx];
+
+  if (opp && opp.name) {
+    oppEl.innerHTML = `<b style="color:var(--text-primary)">${esc(opp.name)}</b>` +
+      (opp.ready
+        ? ' <span style="color:#4caf50">✅ Prêt</span>'
+        : ' <span style="color:var(--text-secondary)">⏳ En attente…</span>');
+  } else {
+    oppEl.textContent = '⏳ En attente d\'un adversaire…';
+  }
+
+  const self      = players[lobbyPlayerIndex];
+  const selfReady = self?.ready || false;
+  const badge     = document.getElementById('lobby-self-ready-badge');
+  const readyBtn  = document.getElementById('btn-lobby-ready');
+  if (badge) badge.style.display = selfReady ? 'inline' : 'none';
+  if (readyBtn && selfReady) { readyBtn.disabled = true; readyBtn.textContent = '✅ Prêt'; }
+
+  if (lobby.status === 'WAITING') {
+    statusEl.textContent = 'En attente d\'un adversaire…';
+  } else if (lobby.status === 'FULL') {
+    const self0 = players[0]; const self1 = players[1];
+    const bothReady = self0?.ready && self1?.ready;
+    statusEl.textContent = bothReady ? '⏳ Démarrage en cours…' : 'Choisissez votre deck et cliquez "Je suis prêt !".';
+  } else if (lobby.status === 'STARTED') {
+    statusEl.textContent = '✅ Partie démarrée !';
+  }
+}
+
+async function setLobbyReady() {
+  const deckName = document.getElementById('lobby-self-deck').value;
+  if (!deckName || !lobbyId) return;
+  const btn = document.getElementById('btn-lobby-ready');
+  btn.disabled = true; btn.textContent = '⏳…';
+  try {
+    const res = await window.forgeApi.post('/api/lobby/' + lobbyId + '/ready',
+      { playerIndex: lobbyPlayerIndex, deckName });
+    document.getElementById('lobby-self-ready-badge').style.display = 'inline';
+    btn.textContent = '✅ Prêt';
+    if (res.lobby) renderLobbyRoom(res.lobby);
+    if (res.started && res.sessionId) {
+      lobbyPrevSessionId = res.sessionId;
+      const lobby = res.lobby || await window.forgeApi.get('/api/lobby/' + lobbyId);
+      enterLobbyGame(lobby, res.sessionId);
+    }
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '✓ Je suis prêt !';
+    document.getElementById('lobby-room-status').textContent = 'Erreur : ' + (e.message || e);
+  }
+}
+
+async function leaveLobby() {
+  stopLobbyPoll();
+  if (lobbyId) {
+    try { await window.forgeApi.delete('/api/lobby/' + lobbyId); } catch {}
+  }
+  lobbyId = null; lobbyPlayerIndex = 0; lobbyPrevSessionId = null;
+  resetLobbyUI();
+}
+
+function startLobbyPoll() {
+  if (lobbyPollTimer) clearInterval(lobbyPollTimer);
+  lobbyPollTimer = setInterval(doPollLobby, 2000);
+}
+
+function stopLobbyPoll() {
+  if (lobbyPollTimer) clearInterval(lobbyPollTimer);
+  lobbyPollTimer = null;
+}
+
+async function doPollLobby() {
+  if (!lobbyId) { stopLobbyPoll(); return; }
+  try {
+    const lobby = await window.forgeApi.get('/api/lobby/' + lobbyId);
+    if (document.getElementById('lobby-room')?.classList.contains('hidden') === false) {
+      renderLobbyRoom(lobby);
+    }
+    if (lobby.status === 'STARTED' && lobby.sessionId && lobby.sessionId !== lobbyPrevSessionId) {
+      stopLobbyPoll();
+      lobbyPrevSessionId = lobby.sessionId;
+      enterLobbyGame(lobby, lobby.sessionId);
+    }
+  } catch { /* keep polling */ }
+}
+
+function enterLobbyGame(lobby, sessionId) {
+  stopLobbyPoll();
+  pvpPlayerIndex = lobbyPlayerIndex;
+  isPvpGame      = true;
+  playSession    = sessionId;
+  pausePolling   = false;
+
+  const players = lobby.players || [];
+  const p1Name  = players[0]?.name || 'Joueur 1';
+  const p2Name  = players[1]?.name || 'Joueur 2';
+
+  matchState = {
+    game: 1,
+    wins: { [p1Name]: 0, [p2Name]: 0 },
+    deck1: players[0]?.deck || '?',
+    deck2: players[1]?.deck || '?',
+    format: (lobby.format || 'Commander').replace(' 60', ''),
+    p1Name, p2Name, pvp: true,
+    lobbyId,
+    originalMain1: null, originalSideboard1: null, currentSwaps: { sbIn: [], sbOut: [] }
+  };
+
+  document.querySelectorAll('#coin-modal,#arrange-modal').forEach(m => m.remove());
+  document.getElementById('play-setup').classList.add('hidden');
+  document.getElementById('play-board').classList.remove('hidden');
+  document.getElementById('debug-bar')?.classList.add('hidden');
+  // Switch to play tab
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.view === 'play'));
+  document.querySelectorAll('.view').forEach(v => v.classList.toggle('active', v.id === 'view-play'));
+
+  updateMatchScore();
+  startPolling();
+}
+
+function stopLobbyGame() {
+  clearInterval(playPollTimer);
+  if (playSession) { try { window.forgeApi.delete('/api/game/' + playSession); } catch {} }
+  playSession = null;
+  playState   = null;
+  isPvpGame   = false;
+  pvpPlayerIndex = 0;
+  matchState  = null;
+  gameOverHandled = false;
+  document.getElementById('play-board').classList.add('hidden');
+  document.getElementById('play-winner').classList.add('hidden');
+  document.getElementById('play-decision').classList.add('hidden');
+  document.getElementById('play-setup').classList.remove('hidden');
+  { const el = document.getElementById('play-log'); if (el) el.textContent = ''; }
+  document.getElementById('debug-bar')?.classList.add('hidden');
+  const ms = document.getElementById('match-score'); if (ms) ms.textContent = '';
+  clearRevealedPanel();
+  // Return to lobby room (reset ready state so another game can start)
+  if (lobbyId) {
+    document.getElementById('local-play-section').classList.add('hidden');
+    document.getElementById('online-section').classList.remove('hidden');
+    document.getElementById('lobby-landing').classList.add('hidden');
+    document.getElementById('lobby-room').classList.remove('hidden');
+    const btn = document.getElementById('btn-lobby-ready');
+    if (btn) { btn.disabled = false; btn.textContent = '✓ Je suis prêt !'; }
+    const badge = document.getElementById('lobby-self-ready-badge');
+    if (badge) badge.style.display = 'none';
+    document.getElementById('lobby-room-status').textContent = '← Fin de partie. Choisissez un deck pour jouer à nouveau.';
+    startLobbyPoll();
+  } else {
+    showLocalSection();
+  }
+}
+
+// Called by player 1 between games: polls lobby until host posts a new sessionId
+function startLobbyWaitNextGame() {
+  if (lobbyPollTimer) clearInterval(lobbyPollTimer);
+  lobbyPollTimer = setInterval(async () => {
+    if (!lobbyId || !matchState?.lobbyId) { stopLobbyPoll(); return; }
+    try {
+      const lobby = await window.forgeApi.get('/api/lobby/' + lobbyId);
+      if (lobby.sessionId && lobby.sessionId !== lobbyPrevSessionId) {
+        stopLobbyPoll();
+        lobbyPrevSessionId = lobby.sessionId;
+        const winnerEl = document.getElementById('play-winner');
+        if (winnerEl) winnerEl.classList.add('hidden');
+        clearInterval(playPollTimer);
+        gameOverHandled = false;
+        playSession  = lobby.sessionId;
+        pausePolling = false;
+        { const el = document.getElementById('play-log'); if (el) el.textContent = ''; }
+        document.getElementById('play-decision').classList.add('hidden');
+        document.querySelectorAll('#coin-modal,#arrange-modal').forEach(m => m.remove());
+        startPolling();
+      }
+    } catch {}
+  }, 2000);
 }
 
 // ── Debug bar ────────────────────────────────────────────────────────────────
@@ -1013,7 +1330,8 @@ async function doPoll() {
   if (pausePolling) return;
   const sessionIdAtPoll = playSession;
   try {
-    const state = await window.forgeApi.get('/api/game/' + sessionIdAtPoll + '/state');
+    const playerParam = isPvpGame ? '?player=' + pvpPlayerIndex : '';
+    const state = await window.forgeApi.get('/api/game/' + sessionIdAtPoll + '/state' + playerParam);
     if (playSession !== sessionIdAtPoll) return; // stale — discard
     renderGameState(state);
     if (state.gameOver) clearInterval(playPollTimer);
@@ -1042,6 +1360,8 @@ function resetPlayView() {
   playSession = null;
   playState = null;
   matchState = null;
+  isPvpGame = false;
+  pvpPlayerIndex = 0;
   document.getElementById('play-setup').classList.remove('hidden');
   document.getElementById('play-board').classList.add('hidden');
   document.getElementById('play-winner').classList.add('hidden');
@@ -1050,6 +1370,7 @@ function resetPlayView() {
   document.getElementById('debug-bar')?.classList.add('hidden');
   const ms = document.getElementById('match-score');
   if (ms) ms.textContent = '';
+  clearRevealedPanel();
 }
 
 function handleGameOver(winner) {
@@ -1073,21 +1394,44 @@ function handleGameOver(winner) {
   // Check match winner
   if (p1w >= 2 || p2w >= 2) {
     const matchWinner = p1w >= 2 ? matchState.p1Name : matchState.p2Name;
-    winnerEl.innerHTML = `🏆 <b>${matchWinner}</b> remporte le match (${p1w}–${p2w}) !
-      <button id="btn-new-match" class="btn-secondary" style="margin-left:12px">Nouveau match</button>`;
-    document.getElementById('btn-new-match').addEventListener('click', () => stopPlayGame());
+    if (matchState.lobbyId) {
+      winnerEl.innerHTML = `🏆 <b>${matchWinner}</b> remporte le match (${p1w}–${p2w}) !
+        <button id="btn-new-match" class="btn-secondary" style="margin-left:12px">Retour au salon</button>`;
+      document.getElementById('btn-new-match').addEventListener('click', () => stopLobbyGame());
+    } else {
+      winnerEl.innerHTML = `🏆 <b>${matchWinner}</b> remporte le match (${p1w}–${p2w}) !
+        <button id="btn-new-match" class="btn-secondary" style="margin-left:12px">Nouveau match</button>`;
+      document.getElementById('btn-new-match').addEventListener('click', () => stopPlayGame());
+    }
     return;
   }
 
   // Next game
   matchState.game++;
-  matchState.lastWinner = winner || null; // save for goFirstPlayerIndex in startNextGame
+  matchState.lastWinner = winner || null;
   const gameWinnerText = winner === 'DRAW' ? 'Égalité' : (winner ? winner + ' gagne' : 'Partie terminée');
-  winnerEl.innerHTML = `Game ${matchState.game - 1} — ${gameWinnerText} (${p1w}–${p2w})
-    <button id="btn-next-game" class="btn-primary" style="margin-left:12px">▶ Game ${matchState.game}</button>
-    <button id="btn-end-match" class="btn-secondary" style="margin-left:6px">Abandonner le match</button>`;
-  document.getElementById('btn-next-game').addEventListener('click', startNextGame);
-  document.getElementById('btn-end-match').addEventListener('click', () => stopPlayGame());
+
+  if (matchState.lobbyId) {
+    if (lobbyPlayerIndex === 0) {
+      winnerEl.innerHTML = `Game ${matchState.game - 1} — ${gameWinnerText} (${p1w}–${p2w})
+        <button id="btn-next-game" class="btn-primary" style="margin-left:12px">▶ Game ${matchState.game}</button>
+        <button id="btn-end-match" class="btn-secondary" style="margin-left:6px">Quitter</button>`;
+      document.getElementById('btn-next-game').addEventListener('click', startNextGame);
+      document.getElementById('btn-end-match').addEventListener('click', () => stopLobbyGame());
+    } else {
+      winnerEl.innerHTML = `Game ${matchState.game - 1} — ${gameWinnerText} (${p1w}–${p2w})
+        <span style="margin-left:12px;color:var(--text-secondary)">⏳ En attente de l'hôte…</span>
+        <button id="btn-end-match" class="btn-secondary" style="margin-left:6px">Quitter</button>`;
+      document.getElementById('btn-end-match').addEventListener('click', () => stopLobbyGame());
+      startLobbyWaitNextGame();
+    }
+  } else {
+    winnerEl.innerHTML = `Game ${matchState.game - 1} — ${gameWinnerText} (${p1w}–${p2w})
+      <button id="btn-next-game" class="btn-primary" style="margin-left:12px">▶ Game ${matchState.game}</button>
+      <button id="btn-end-match" class="btn-secondary" style="margin-left:6px">Abandonner le match</button>`;
+    document.getElementById('btn-next-game').addEventListener('click', startNextGame);
+    document.getElementById('btn-end-match').addEventListener('click', () => stopPlayGame());
+  }
 }
 
 async function startNextGame() {
@@ -1172,6 +1516,17 @@ async function startNextGame() {
     isPvpGame = !!result.pvp;
     const debugBar = document.getElementById('debug-bar');
     if (debugBar) debugBar.classList.toggle('hidden', !result.debug);
+    // For lobby PvP: notify player 1 of the new sessionId
+    if (matchState?.lobbyId && pvpPlayerIndex === 0) {
+      try {
+        await window.forgeApi.post('/api/lobby/' + matchState.lobbyId + '/session', {
+          sessionId: result.sessionId,
+          player1Name: matchState.p1Name,
+          player2Name: matchState.p2Name
+        });
+        lobbyPrevSessionId = result.sessionId;
+      } catch { /* ignore — player 1 will timeout */ }
+    }
     document.getElementById('play-board').classList.remove('hidden');
     winnerEl.classList.add('hidden');
     updateMatchScore();
@@ -2801,10 +3156,10 @@ async function sendDecision(body) {
     if (isPvpGame) body = { ...body, playerIndex: pvpPlayerIndex };
     const res = await window.forgeApi.post('/api/game/' + playSession + '/respond', body);
     console.log('[sendDecision] body:', JSON.stringify(body), '| response:', JSON.stringify(res));
-    // Wait for game thread to process before polling
     await new Promise(r => setTimeout(r, 400));
-    const state = await window.forgeApi.get('/api/game/' + playSession + '/state');
-    console.log('[sendDecision] new state phase:', state.phase, '| pendingDecision:', state.pendingDecision?.type, '| hand size:', state.players?.[0]?.hand?.length, '| battlefield:', state.players?.[0]?.battlefield?.map(c=>c.name));
+    const playerParam = isPvpGame ? '?player=' + pvpPlayerIndex : '';
+    const state = await window.forgeApi.get('/api/game/' + playSession + '/state' + playerParam);
+    console.log('[sendDecision] new state phase:', state.phase, '| pendingDecision:', state.pendingDecision?.type);
     renderGameState(state);
   } catch (e) { console.error('Decision error:', e); }
 }

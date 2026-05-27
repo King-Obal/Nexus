@@ -5,6 +5,7 @@ import forge.api.servlet.DecksServlet;
 import forge.api.servlet.DeckDetailServlet;
 import forge.api.servlet.GameServlet;
 import forge.api.servlet.ImportDeckServlet;
+import forge.api.servlet.LobbyServlet;
 import forge.api.servlet.ShutdownServlet;
 import forge.api.servlet.SimulateServlet;
 import forge.api.servlet.StatusServlet;
@@ -55,6 +56,7 @@ public class ForgeApiServer {
         context.addServlet(new ServletHolder(new DeckDetailServlet()),  "/api/decks/detail");
         context.addServlet(new ServletHolder(new CardSearchServlet()),  "/api/cards/search");
         context.addServlet(new ServletHolder(new GameServlet()),        "/api/game/*");
+        context.addServlet(new ServletHolder(new LobbyServlet()),      "/api/lobby/*");
         context.addServlet(new ServletHolder(new ShutdownServlet()),   "/api/shutdown");
 
         // Fallback for unknown paths

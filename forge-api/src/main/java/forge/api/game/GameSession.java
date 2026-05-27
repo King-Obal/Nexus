@@ -36,6 +36,7 @@ public class GameSession {
     private volatile String gameError = null;
     private volatile boolean debug = false;
     private volatile boolean pvp = false;
+    private final String[] playerNames = {"Player 1", "Player 2"};
     private volatile long lastActivity = System.currentTimeMillis();
     private volatile String concedeWinner = null;      // set when player 1 concedes
     private volatile int forcedFirstPlayerIndex = -1;  // -1 = coin toss, 0/1 = forced
@@ -58,6 +59,14 @@ public class GameSession {
 
     public boolean isPvp() { return pvp; }
     public void setPvp(boolean pvp) { this.pvp = pvp; }
+
+    public String getPlayerName(int i) {
+        return (i >= 0 && i < playerNames.length) ? playerNames[i] : "Player " + (i + 1);
+    }
+    public void setPlayerName(int i, String name) {
+        if (i >= 0 && i < playerNames.length && name != null && !name.isBlank())
+            playerNames[i] = name.trim();
+    }
 
     public void setGame(Game game) {
         this.game = game;
@@ -150,6 +159,11 @@ public class GameSession {
     // ── Game state serialization ──────────────────────────────────────────────
 
     public Map<String, Object> toStateMap() {
+        return toStateMap(-1);
+    }
+
+    /** viewingPlayer: 0 or 1 to hide the opponent's hand; -1 = show everything */
+    public Map<String, Object> toStateMap(int viewingPlayer) {
         Map<String, Object> state = new LinkedHashMap<>();
         state.put("id", id);
         state.put("gameOver", gameOver);
@@ -174,11 +188,13 @@ public class GameSession {
             state.put("phase", "UNKNOWN");
         }
 
-        // Players
+        // Players — in PvP, hide opponent hand when viewingPlayer is specified
         List<Map<String, Object>> players = new ArrayList<>();
         try {
-            for (Player p : game.getPlayers()) {
-                players.add(serializePlayer(p));
+            List<Player> playerList = new ArrayList<>(game.getPlayers());
+            for (int i = 0; i < playerList.size(); i++) {
+                boolean hideHand = pvp && viewingPlayer >= 0 && i != viewingPlayer;
+                players.add(serializePlayer(playerList.get(i), hideHand));
             }
         } catch (Exception e) {
             System.err.println("[API] serializePlayers error: " + e);
@@ -264,7 +280,7 @@ public class GameSession {
         return state;
     }
 
-    private Map<String, Object> serializePlayer(Player p) {
+    private Map<String, Object> serializePlayer(Player p, boolean hideHand) {
         Map<String, Object> map = new LinkedHashMap<>();
         map.put("id", p.getId());
         map.put("name", p.getName());
@@ -274,10 +290,16 @@ public class GameSession {
         map.put("graveyardSize", p.getCardsIn(ZoneType.Graveyard).size());
         try { if (p.hasDelirium()) map.put("delirium", true); } catch (Exception ignored) {}
 
-        // Hand
-        List<Map<String, Object>> hand = new ArrayList<>();
-        for (Card c : p.getCardsIn(ZoneType.Hand)) hand.add(serializeCard(c));
-        map.put("hand", hand);
+        // Hand — hidden for opponent in PvP (only count sent)
+        int handCount = p.getCardsIn(ZoneType.Hand).size();
+        map.put("handSize", handCount);
+        if (hideHand) {
+            map.put("hand", List.of()); // cards hidden
+        } else {
+            List<Map<String, Object>> hand = new ArrayList<>();
+            for (Card c : p.getCardsIn(ZoneType.Hand)) hand.add(serializeCard(c));
+            map.put("hand", hand);
+        }
 
         // Battlefield
         List<Map<String, Object>> battlefield = new ArrayList<>();
