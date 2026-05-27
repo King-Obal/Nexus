@@ -246,11 +246,12 @@ async function fetchCardImage(name, isToken = false) {
   // Check persistent localStorage cache first
   try {
     const stored = localStorage.getItem('sf:' + cacheKey);
-    if (stored !== null) {
-      const url = stored || null;
-      scryfallCache.set(cacheKey, url);
-      return url;
+    if (stored) {
+      scryfallCache.set(cacheKey, stored);
+      return stored;
     }
+    // Remove stale empty entries so Scryfall is retried
+    if (stored === '') localStorage.removeItem('sf:' + cacheKey);
   } catch { /* localStorage not available */ }
   // Fetch from Scryfall
   try {
@@ -278,12 +279,24 @@ async function fetchCardImage(name, isToken = false) {
       r = await fetch('https://api.scryfall.com/cards/named?exact=' + encodeURIComponent(name));
       if (r.ok) {
         d = await r.json();
-        // Store full object so builder can read type_line / cmc
         scryfallCards.set(name, d);
         if (name.includes(' // ')) {
           for (const face of name.split(' // ')) scryfallCards.set(face.trim(), d);
         }
         img = sfFaceImg(d, name) || null;
+      }
+      // Fuzzy fallback: handles diacritics mismatch (e.g. "Lorien Revealed" vs "Lórien Revealed")
+      // and stale localStorage null entries
+      if (!img) {
+        r = await fetch('https://api.scryfall.com/cards/named?fuzzy=' + encodeURIComponent(name));
+        if (r.ok) {
+          d = await r.json();
+          scryfallCards.set(name, d);
+          if (name.includes(' // ')) {
+            for (const face of name.split(' // ')) scryfallCards.set(face.trim(), d);
+          }
+          img = sfFaceImg(d, name) || null;
+        }
       }
     }
     scryfallCache.set(cacheKey, img ?? null);

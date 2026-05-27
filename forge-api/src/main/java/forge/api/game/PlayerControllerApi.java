@@ -1051,6 +1051,8 @@ public class PlayerControllerApi extends PlayerController {
                                                                  Map<String, Object> params) {
         if (delayedReveal != null) reveal(delayedReveal);
         if (optionList == null || optionList.isEmpty()) return null;
+        // Single non-optional choice: auto-select without showing a modal (cascade, etc.)
+        if (optionList.size() == 1 && !isOptional) return Iterables.getFirst(optionList, null);
         // Only Card and Player entities are serializable interactively
         List<Map<String, Object>> options = new ArrayList<>();
         List<T> indexed = new ArrayList<>();
