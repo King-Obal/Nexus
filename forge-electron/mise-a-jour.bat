@@ -22,14 +22,44 @@ if not errorlevel 1 (
   exit /b 1
 )
 
+:: Detecter le chemin de renderer.js
+set RENDERER=
+if exist "resources\app\src\renderer.js"          set RENDERER=resources\app\src\renderer.js
+if exist "resources\app\renderer.js"              set RENDERER=resources\app\renderer.js
+if exist "ForgeMTG\resources\app\src\renderer.js" set RENDERER=ForgeMTG\resources\app\src\renderer.js
+if exist "ForgeMTG\resources\app\renderer.js"     set RENDERER=ForgeMTG\resources\app\renderer.js
+
+if "%RENDERER%"=="" (
+  echo  [!] renderer.js introuvable.
+  echo      Assurez-vous que mise-a-jour.bat est dans le dossier ForgeMTG.
+  echo.
+  pause
+  exit /b 1
+)
+echo  renderer.js detecte : %RENDERER%
+
+:: Detecter le chemin de forge-api.jar
+set JAR=
+if exist "forge-api\forge-api.jar"          set JAR=forge-api\forge-api.jar
+if exist "ForgeMTG\forge-api\forge-api.jar" set JAR=ForgeMTG\forge-api\forge-api.jar
+
+if "%JAR%"=="" (
+  echo  [!] forge-api.jar introuvable.
+  echo.
+  pause
+  exit /b 1
+)
+echo  forge-api.jar detecte : %JAR%
+echo.
+
 echo  Telechargement de renderer.js...
 powershell -NoProfile -Command ^
-  "try { Invoke-WebRequest -Uri '%BASE_URL%/forge-electron/src/renderer.js' -OutFile 'resources\app\src\renderer.js' -UseBasicParsing; Write-Host '  OK' } catch { Write-Host '  ERREUR:' $_.Exception.Message; exit 1 }"
+  "try { Invoke-WebRequest -Uri '%BASE_URL%/forge-electron/src/renderer.js' -OutFile '%RENDERER%' -UseBasicParsing; Write-Host '  OK' } catch { Write-Host '  ERREUR:' $_.Exception.Message; exit 1 }"
 if errorlevel 1 goto :error
 
 echo  Telechargement de forge-api.jar (40 Mo, patience)...
 powershell -NoProfile -Command ^
-  "try { Invoke-WebRequest -Uri '%BASE_URL%/forge-api/forge-api.jar' -OutFile 'forge-api\forge-api.jar' -UseBasicParsing; Write-Host '  OK' } catch { Write-Host '  ERREUR:' $_.Exception.Message; exit 1 }"
+  "try { Invoke-WebRequest -Uri '%BASE_URL%/forge-api/forge-api.jar' -OutFile '%JAR%' -UseBasicParsing; Write-Host '  OK' } catch { Write-Host '  ERREUR:' $_.Exception.Message; exit 1 }"
 if errorlevel 1 goto :error
 
 echo.
