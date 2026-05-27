@@ -48,6 +48,10 @@ let forgeProcess = null;
 
 // ── Nexus API process ──────────────────────────────────────────────────────
 
+function sendLoadStatus(status) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('load:status', status);
+}
+
 function startForgeApi() {
   console.log('[main] Starting Nexus API server...');
   const fs = require('fs');
@@ -58,9 +62,23 @@ function startForgeApi() {
     cwd: JAR_WORKDIR,
     stdio: ['ignore', 'pipe', 'pipe']
   });
-  forgeProcess.stdout.on('data', function(d) { process.stdout.write('[nexus] ' + d); logStream.write(d); });
+  forgeProcess.on('error', function(err) {
+    console.error('[main] Failed to start Java:', err.message);
+    sendLoadStatus({ event: 'java-crashed', noJava: err.code === 'ENOENT', code: null });
+  });
+  forgeProcess.stdout.on('data', function(d) {
+    process.stdout.write('[nexus] ' + d);
+    logStream.write(d);
+    // Signal renderer once Java produces any output (it's alive)
+    sendLoadStatus({ event: 'java-started' });
+    forgeProcess.stdout.removeAllListeners('data');
+    forgeProcess.stdout.on('data', function(d2) { process.stdout.write('[nexus] ' + d2); logStream.write(d2); });
+  });
   forgeProcess.stderr.on('data', function(d) { process.stderr.write('[nexus] ' + d); logStream.write(d); });
-  forgeProcess.on('exit', function(code) { console.log('[main] Nexus API exited (' + code + ')'); });
+  forgeProcess.on('exit', function(code) {
+    console.log('[main] Nexus API exited (' + code + ')');
+    if (code !== 0 && code !== null) sendLoadStatus({ event: 'java-crashed', code });
+  });
 }
 
 function pollUntilReady(retries, interval) {
@@ -82,7 +100,12 @@ function pollUntilReady(retries, interval) {
       }).on('error', retry);
     }
     function retry() {
-      if (++attempts >= retries) return reject(new Error('Nexus API not ready'));
+      attempts++;
+      sendLoadStatus({ event: 'poll', attempt: attempts, max: retries });
+      if (attempts >= retries) {
+        sendLoadStatus({ event: 'failed' });
+        return reject(new Error('Nexus API not ready'));
+      }
       setTimeout(check, interval);
     }
     check();

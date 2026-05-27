@@ -1,8 +1,8 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="fr">
 <head>
   <meta charset="UTF-8">
-  <title>Nexus — Loading</title>
+  <title>Nexus — Chargement</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
@@ -14,11 +14,9 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 24px;
+      gap: 20px;
     }
     h1 { font-size: 2.4rem; letter-spacing: 6px; text-transform: uppercase; color: #d4af6f; }
-    p  { font-size: 0.95rem; color: #6b7c8d; letter-spacing: 1px; }
-
     .spinner {
       width: 48px; height: 48px;
       border: 3px solid #1e2f3d;
@@ -26,29 +24,82 @@
       border-radius: 50%;
       animation: spin 1s linear infinite;
     }
+    .spinner.stop { animation: none; border-top-color: #7a2020; }
     @keyframes spin { to { transform: rotate(360deg); } }
-
-    .status {
-      font-size: 0.8rem;
-      color: #4a5a6a;
-      font-family: monospace;
-      margin-top: 8px;
+    #msg { font-size: 0.88rem; color: #8a9aaa; text-align: center; max-width: 420px; line-height: 1.6; }
+    #timer { font-size: 0.75rem; color: #3a4a5a; font-family: monospace; }
+    #error-box {
+      display: none;
+      background: #1e1010;
+      border: 1px solid #7a2020;
+      border-radius: 8px;
+      padding: 16px 24px;
+      max-width: 460px;
+      text-align: center;
+      font-size: 0.82rem;
+      color: #e07070;
+      line-height: 1.8;
     }
+    #error-box.show { display: block; }
+    #error-box b { color: #f09090; }
+    code { background: #1a2530; padding: 1px 5px; border-radius: 3px; font-size: 0.78rem; }
   </style>
 </head>
 <body>
   <h1>Nexus</h1>
-  <div class="spinner"></div>
-  <p>Loading card database...</p>
-  <div class="status" id="status">Initializing engine (~30 seconds on first load)</div>
+  <div class="spinner" id="spinner"></div>
+  <div id="msg">Démarrage du moteur Java...</div>
+  <div id="timer">0 s</div>
+  <div id="error-box"></div>
 
   <script>
-    let dots = 0;
+    const msgEl   = document.getElementById('msg');
+    const timerEl = document.getElementById('timer');
+    const errBox  = document.getElementById('error-box');
+    const spinner = document.getElementById('spinner');
+    const start   = Date.now();
+    let crashed   = false;
+
+    function showError(html) {
+      crashed = true;
+      spinner.classList.add('stop');
+      msgEl.textContent = '';
+      errBox.innerHTML = html;
+      errBox.classList.add('show');
+    }
+
     setInterval(() => {
-      dots = (dots + 1) % 4;
-      document.getElementById('status').textContent =
-        'Initializing engine' + '.'.repeat(dots);
-    }, 600);
+      const s = Math.floor((Date.now() - start) / 1000);
+      timerEl.textContent = s + ' s';
+      if (crashed) return;
+      if      (s <  10) msgEl.textContent = 'Démarrage du moteur Java...';
+      else if (s <  30) msgEl.textContent = 'Chargement de la base de cartes (~30 secondes)';
+      else if (s <  60) msgEl.textContent = 'Chargement en cours, patience...';
+      else if (s <  90) msgEl.textContent = 'Plus long que prévu — Java est lent au premier lancement';
+      else showError('<b>Le chargement dépasse 90 secondes.</b><br>'
+                   + 'Vérifiez que <b>Java 17+</b> est installé.<br>'
+                   + 'Si le problème persiste, relancez Nexus.exe.');
+    }, 500);
+
+    if (window.forgeApi?.onLoadStatus) {
+      window.forgeApi.onLoadStatus(status => {
+        if (status.event === 'java-started') {
+          msgEl.textContent = 'Moteur démarré — chargement de la base de cartes...';
+        } else if (status.event === 'poll') {
+          if (!crashed && status.attempt > 3)
+            msgEl.textContent = 'Initialisation... (' + status.attempt + ' / ' + status.max + ')';
+        } else if (status.event === 'java-crashed') {
+          showError(status.noJava
+            ? '<b>Java introuvable.</b><br>Installez <b>Java 17+</b> (JRE ou JDK) et relancez Nexus.'
+            : '<b>Le moteur Java a planté</b> (code ' + (status.code ?? '?') + ').<br>'
+              + 'Consultez <code>forge-api/logs/api.log</code>.');
+        } else if (status.event === 'failed') {
+          showError('<b>Impossible de démarrer le moteur.</b><br>'
+                  + 'Vérifiez que <b>Java 17+</b> est installé.<br>'
+                  + 'Consultez <code>forge-api/logs/api.log</code>.');
+        }
+      });
+    }
   </script>
 </body>
 </html>

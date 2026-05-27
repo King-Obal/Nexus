@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld('forgeApi', {
   importMoxfield: (url)            => ipcRenderer.invoke('api:import-moxfield', url),
   getMode:        ()               => ipcRenderer.invoke('api:get-mode'),
   setRemote:      (url)            => ipcRenderer.invoke('api:set-remote', url),
-  clearRemote:    ()               => ipcRenderer.invoke('api:clear-remote')
+  clearRemote:    ()               => ipcRenderer.invoke('api:clear-remote'),
+  onLoadStatus:   (cb)             => ipcRenderer.on('load:status', (_, status) => cb(status))
 });
