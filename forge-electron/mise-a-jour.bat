@@ -13,9 +13,9 @@ echo  =====================================
 echo.
 
 :: Verifier si l'appli tourne
-tasklist /FI "IMAGENAME eq ForgeMTG.exe" 2>nul | find /I "ForgeMTG.exe" >nul
+tasklist /FI "IMAGENAME eq Nexus.exe" 2>nul | find /I "Nexus.exe" >nul
 if not errorlevel 1 (
-  echo  [!] ForgeMTG.exe est en cours d'execution.
+  echo  [!] Nexus.exe est en cours d'execution.
   echo      Fermez l'application avant de continuer.
   echo.
   pause
@@ -35,21 +35,20 @@ for /f "delims=" %%F in ('dir /s /b "%~dp0forge-api.jar" 2^>nul') do (
 )
 
 if "%RENDERER%"=="" (
-  echo  [!] renderer.js introuvable dans :
-  echo      %~dp0
+  echo  [!] renderer.js introuvable. Assurez-vous que mise-a-jour.bat
+  echo      est dans le meme dossier que Nexus.exe.
   echo.
-  echo  Verifiez que mise-a-jour.bat est dans le dossier de ForgeMTG.exe.
   pause
   exit /b 1
 )
 if "%JAR%"=="" (
-  echo  [!] forge-api.jar introuvable dans :
-  echo      %~dp0
+  echo  [!] forge-api.jar introuvable.
+  echo.
   pause
   exit /b 1
 )
 
-echo  renderer.js : %RENDERER%
+echo  renderer.js  : %RENDERER%
 echo  forge-api.jar: %JAR%
 echo.
 
@@ -63,7 +62,7 @@ if errorlevel 1 goto :error
 
 echo.
 echo  Mise a jour reussie !
-echo  Relancez ForgeMTG.exe.
+echo  Relancez Nexus.exe.
 echo.
 pause
 exit /b 0
