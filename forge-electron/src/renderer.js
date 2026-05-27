@@ -936,7 +936,9 @@ async function joinLobby(code) {
   btn.disabled = true; btn.textContent = '⏳…';
   try {
     const res = await window.forgeApi.post('/api/lobby/' + code.toUpperCase() + '/join', { playerName: nickname });
-    lobbyId = (res.lobby && res.lobby.id) || code.toUpperCase();
+    if (res.error) throw new Error(res.error);
+    if (!res.lobby) throw new Error('Réponse inattendue du serveur — vérifiez que l\'URL distante Hamachi est configurée dans Paramètres.');
+    lobbyId = res.lobby.id || code.toUpperCase();
     lobbyPlayerIndex = 1;
     lobbyPrevSessionId = res.lobby.sessionId || null;
     localStorage.setItem('nexus-nickname', nickname);
