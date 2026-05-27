@@ -5,7 +5,32 @@ const http = require('http');
 const https = require('https');
 
 const API_PORT = 4567;
-const API_BASE = 'http://localhost:' + API_PORT;
+
+// ── Config (persisted to userData/nexus-config.json) ──────────────────────
+const CONFIG_PATH = path.join(app.getPath('userData'), 'nexus-config.json');
+
+function loadConfig() {
+  try {
+    const fs = require('fs');
+    if (fs.existsSync(CONFIG_PATH)) return JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf8'));
+  } catch {}
+  return {};
+}
+
+function saveConfig(cfg) {
+  try {
+    const fs = require('fs');
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg, null, 2), 'utf8');
+  } catch (e) { console.error('[config] save error:', e); }
+}
+
+let appConfig = loadConfig();
+
+// Dynamic API base — localhost when hosting, remote Hamachi IP when guest
+function getApiBase() {
+  return appConfig.remoteUrl || ('http://localhost:' + API_PORT);
+}
+function isGuestMode() { return !!appConfig.remoteUrl; }
 
 // Paths differ between dev (electron .) and packaged (Nexus.exe)
 const isDev = !app.isPackaged;
@@ -44,7 +69,7 @@ function pollUntilReady(retries, interval) {
   return new Promise(function(resolve, reject) {
     var attempts = 0;
     function check() {
-      http.get(API_BASE + '/api/status', function(res) {
+      http.get(getApiBase() + '/api/status', function(res) {
         var data = '';
         res.on('data', function(c) { data += c; });
         res.on('end', function() {
@@ -100,8 +125,9 @@ function withTimeout(promise, ms, label) {
 }
 
 function fetchJson(endpoint) {
+  var url = getApiBase() + endpoint;
   return withTimeout(new Promise(function(resolve, reject) {
-    http.get(API_BASE + endpoint, function(res) {
+    http.get(url, function(res) {
       var data = '';
       res.on('data', function(c) { data += c; });
       res.on('end', function() {
@@ -115,9 +141,10 @@ function fetchJson(endpoint) {
 function postJson(endpoint, body) {
   return withTimeout(new Promise(function(resolve, reject) {
     var payload = JSON.stringify(body);
+    var parsed = new URL(getApiBase());
     var opts = {
-      hostname: 'localhost',
-      port: API_PORT,
+      hostname: parsed.hostname,
+      port: parseInt(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80),
       path: endpoint,
       method: 'POST',
       headers: {
@@ -141,9 +168,10 @@ function postJson(endpoint, body) {
 
 function deleteJson(endpoint) {
   return withTimeout(new Promise(function(resolve, reject) {
+    var parsed = new URL(getApiBase());
     var opts = {
-      hostname: 'localhost',
-      port: API_PORT,
+      hostname: parsed.hostname,
+      port: parseInt(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80),
       path: endpoint,
       method: 'DELETE'
     };
@@ -209,6 +237,26 @@ app.whenReady().then(function() {
     return deleteJson(endpoint);
   });
 
+  ipcMain.handle('api:get-mode', function() {
+    return {
+      remoteUrl: appConfig.remoteUrl || null,
+      isGuest: isGuestMode(),
+      playerIndex: isGuestMode() ? 1 : 0
+    };
+  });
+
+  ipcMain.handle('api:set-remote', function(_, url) {
+    appConfig.remoteUrl = url;
+    saveConfig(appConfig);
+    return { ok: true, note: 'Restart required to switch mode' };
+  });
+
+  ipcMain.handle('api:clear-remote', function() {
+    delete appConfig.remoteUrl;
+    saveConfig(appConfig);
+    return { ok: true, note: 'Restart required to switch mode' };
+  });
+
   ipcMain.handle('api:import-moxfield', function(_, url, nameOverride) {
     // Extract publicId from URL like https://moxfield.com/decks/{publicId}
     var match = url.match(/moxfield\.com\/decks\/([A-Za-z0-9_-]+)/);
@@ -236,23 +284,34 @@ app.whenReady().then(function() {
   var win = createWindow();
   win.loadFile(path.join(__dirname, 'src', 'loading.html'));
 
-  // Check if forge-api is already up (dev mode: started manually)
-  fetchJson('/api/status').then(function(status) {
-    if (status.forgeInitialized) {
-      win.loadFile(path.join(__dirname, 'src', 'index.html'));
-    } else {
-      return pollUntilReady().then(function() {
-        win.loadFile(path.join(__dirname, 'src', 'index.html'));
-      });
-    }
-  }).catch(function() {
-    startForgeApi();
-    pollUntilReady().then(function() {
+  if (isGuestMode()) {
+    // Guest mode: connect to remote forge-api, don't start Java
+    console.log('[main] Guest mode — connecting to ' + appConfig.remoteUrl);
+    pollUntilReady(30, 2000).then(function() {
       win.loadFile(path.join(__dirname, 'src', 'index.html'));
     }).catch(function(err) {
-      console.error('[main] Forge API failed to start:', err.message);
+      console.error('[main] Remote forge-api not reachable:', err.message);
+      win.loadFile(path.join(__dirname, 'src', 'index.html')); // load anyway, show error in UI
     });
-  });
+  } else {
+    // Local mode: check if forge-api is already up (dev mode: started manually)
+    fetchJson('/api/status').then(function(status) {
+      if (status.forgeInitialized) {
+        win.loadFile(path.join(__dirname, 'src', 'index.html'));
+      } else {
+        return pollUntilReady().then(function() {
+          win.loadFile(path.join(__dirname, 'src', 'index.html'));
+        });
+      }
+    }).catch(function() {
+      startForgeApi();
+      pollUntilReady().then(function() {
+        win.loadFile(path.join(__dirname, 'src', 'index.html'));
+      }).catch(function(err) {
+        console.error('[main] Forge API failed to start:', err.message);
+      });
+    });
+  }
 
 });
 

@@ -35,6 +35,7 @@ public class GameSession {
     private volatile boolean gameOver = false;
     private volatile String gameError = null;
     private volatile boolean debug = false;
+    private volatile boolean pvp = false;
     private volatile long lastActivity = System.currentTimeMillis();
     private volatile String concedeWinner = null;      // set when player 1 concedes
     private volatile int forcedFirstPlayerIndex = -1;  // -1 = coin toss, 0/1 = forced
@@ -54,6 +55,9 @@ public class GameSession {
 
     public boolean isDebug() { return debug; }
     public void setDebug(boolean debug) { this.debug = debug; }
+
+    public boolean isPvp() { return pvp; }
+    public void setPvp(boolean pvp) { this.pvp = pvp; }
 
     public void setGame(Game game) {
         this.game = game;

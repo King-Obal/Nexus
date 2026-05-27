@@ -18,8 +18,28 @@
       <button class="tab" data-view="builder">Builder</button>
     </nav>
     <button id="btn-import-moxfield" class="btn-import">⬇ Import Deck</button>
-    <span class="version">v2.0.12</span>
+    <button id="btn-settings" class="btn-import" title="Paramètres / Multijoueur" style="margin-left:6px">⚙</button>
+    <span class="version" id="topbar-mode">v2.0.12</span>
   </header>
+
+  <!-- Settings modal -->
+  <div id="modal-settings" class="modal-overlay hidden">
+    <div class="modal" style="max-width:440px">
+      <h3>Paramètres</h3>
+      <div id="settings-mode-badge" style="margin-bottom:12px;font-size:0.8rem;padding:6px 10px;border-radius:6px;background:rgba(0,0,0,0.3);color:var(--text-secondary)">Mode : local</div>
+      <label style="display:block;margin-bottom:6px;font-size:0.85rem;color:var(--text-secondary)">URL du serveur Forge distant (IP Hamachi de l'hôte)</label>
+      <input id="settings-remote-url" type="text" class="modal-input" placeholder="http://25.x.x.x:4567" style="margin-bottom:10px">
+      <div style="font-size:0.75rem;color:var(--text-secondary);margin-bottom:14px">
+        Laisser vide pour jouer en local (vs IA). Entrer l'URL de l'hôte pour rejoindre une partie en tant qu'invité.
+        Un redémarrage est nécessaire après changement.
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="settings-save-btn" class="btn-primary btn-sm">Sauvegarder &amp; Quitter</button>
+        <button id="settings-clear-btn" class="btn-secondary btn-sm">Repasser en local</button>
+        <button id="settings-cancel-btn" class="btn-secondary btn-sm" style="margin-left:auto">Annuler</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Import modal -->
   <div id="modal-import" class="modal-overlay hidden">
@@ -150,11 +170,25 @@
 
         <div class="debug-toggle-row">
           <label class="debug-toggle-label">
+            <input type="checkbox" id="play-pvp-mode">
+            🌐 Mode PvP en ligne (votre pote joue comme Joueur 2 via Hamachi)
+          </label>
+        </div>
+        <div class="debug-toggle-row">
+          <label class="debug-toggle-label">
             <input type="checkbox" id="play-debug-mode">
             🔧 Mode debug (mana infini, adversaire passif)
           </label>
         </div>
         <button id="btn-play-start" class="btn-primary">▶ Start Game</button>
+
+        <!-- Guest join panel (shown when in guest mode) -->
+        <div id="guest-join-panel" class="hidden" style="margin-top:18px;padding:14px;border:1px solid var(--gold,#c8a96e);border-radius:8px;background:rgba(0,0,0,0.25)">
+          <div style="font-weight:700;margin-bottom:8px;color:var(--gold,#c8a96e)">Mode Invité</div>
+          <div style="font-size:0.8rem;color:var(--text-secondary);margin-bottom:10px">Connecté au serveur de l'hôte. Cliquez pour rejoindre la partie en cours.</div>
+          <button id="btn-guest-join" class="btn-primary">🎮 Rejoindre la partie</button>
+          <span id="guest-join-status" style="margin-left:10px;font-size:0.8rem;color:var(--text-secondary)"></span>
+        </div>
         <div id="play-error" class="modal-error hidden"></div>
       </div>
 

@@ -62,6 +62,39 @@ btnImport.addEventListener('click', () => {
 btnModalCancel.addEventListener('click', () => modalImport.classList.add('hidden'));
 modalImport.addEventListener('click', e => { if (e.target === modalImport) modalImport.classList.add('hidden'); });
 
+// ── Settings modal ────────────────────────────────────────────────────────
+const modalSettings = document.getElementById('modal-settings');
+document.getElementById('btn-settings').addEventListener('click', async () => {
+  try {
+    const mode = await window.forgeApi.getMode();
+    document.getElementById('settings-remote-url').value = mode.remoteUrl || '';
+    const badge = document.getElementById('settings-mode-badge');
+    badge.textContent = mode.isGuest
+      ? 'Mode : Invité (connecté à ' + mode.remoteUrl + ')'
+      : 'Mode : Local (vs IA)';
+    badge.style.color = mode.isGuest ? '#4caf50' : '';
+  } catch {}
+  modalSettings.classList.remove('hidden');
+});
+document.getElementById('settings-cancel-btn').addEventListener('click', () => modalSettings.classList.add('hidden'));
+modalSettings.addEventListener('click', e => { if (e.target === modalSettings) modalSettings.classList.add('hidden'); });
+document.getElementById('settings-save-btn').addEventListener('click', async () => {
+  const url = document.getElementById('settings-remote-url').value.trim();
+  if (url) {
+    await window.forgeApi.setRemote(url);
+    alert('Sauvegardé. Relancez Nexus pour activer le mode invité.');
+  } else {
+    await window.forgeApi.clearRemote();
+    alert('Sauvegardé. Relancez Nexus pour repasser en mode local.');
+  }
+  modalSettings.classList.add('hidden');
+});
+document.getElementById('settings-clear-btn').addEventListener('click', async () => {
+  await window.forgeApi.clearRemote();
+  alert('Repassé en mode local. Relancez Nexus.');
+  modalSettings.classList.add('hidden');
+});
+
 // Auto-preview on paste
 document.getElementById('deck-text-input').addEventListener('input', () => {
   const { mainboard, commanders, sideboard } = parseDeckList(document.getElementById('deck-text-input').value);
@@ -646,8 +679,35 @@ let playState = null;
 let matchState = null; // { game, wins: {p1:0,p2:0}, deck1, deck2, format, p1Name, p2Name }
 let selectedHandCards = []; // for future multi-select (currently single)
 
+// ── PvP / multiplayer state ───────────────────────────────────────────────
+let pvpPlayerIndex = 0;   // 0 = host/local, 1 = guest
+let isPvpGame = false;    // true when current game is PvP mode
+
+// Load mode from main process (async, runs at startup)
+(async () => {
+  try {
+    const mode = await window.forgeApi.getMode();
+    pvpPlayerIndex = mode.playerIndex ?? 0;
+    const badge = document.getElementById('topbar-mode');
+    const guestPanel = document.getElementById('guest-join-panel');
+    const setupPanel = document.getElementById('play-setup');
+    if (mode.isGuest) {
+      if (badge) badge.textContent = '🌐 Invité — ' + (mode.remoteUrl || '');
+      if (badge) badge.style.color = '#4caf50';
+      // In guest mode, show join panel and hide normal start button + deck selectors
+      if (guestPanel) guestPanel.classList.remove('hidden');
+      const btnStart = document.getElementById('btn-play-start');
+      if (btnStart) btnStart.classList.add('hidden');
+      // Hide host-only controls
+      document.querySelectorAll('.play-setup-row, .debug-toggle-row, .format-picker').forEach(el => el.classList.add('hidden'));
+    }
+  } catch {}
+})();
+
 document.getElementById('btn-play-start').addEventListener('click', startPlayGame);
 document.getElementById('btn-play-stop').addEventListener('click', stopPlayGame);
+
+document.getElementById('btn-guest-join')?.addEventListener('click', guestJoinGame);
 document.getElementById('btn-concede').addEventListener('click', concedeGame);
 document.getElementById('btn-pass-priority').addEventListener('click', () => sendDecision({ choice: 'pass' }));
 
@@ -686,18 +746,23 @@ async function startPlayGame() {
   btn.textContent = 'Starting…';
 
   const isDebug = document.getElementById('play-debug-mode')?.checked || false;
+  const isPvp   = document.getElementById('play-pvp-mode')?.checked  || false;
 
   try {
     const startBody = { deck1, deck2, format };
     if (isDebug) startBody.debug = true;
+    if (isPvp)   startBody.pvp   = true;
     const result = await window.forgeApi.post('/api/game/start', startBody);
     playSession = result.sessionId;
+    isPvpGame = !!result.pvp;
+    pvpPlayerIndex = 0; // host is always player 0
+    const p2Key = isPvp ? 'Player 2' : 'AI';
     pausePolling = false;
     document.querySelectorAll('#coin-modal,#arrange-modal').forEach(m => m.remove());
-    matchState = { game: 1, wins: { 'Player 1': 0, 'AI': 0 },
+    matchState = { game: 1, wins: { 'Player 1': 0, [p2Key]: 0 },
                    deck1, deck2, format,
-                   p1Name: result.player1 || 'Player 1', p2Name: result.player2 || 'AI',
-                   debug: result.debug || false,
+                   p1Name: result.player1 || 'Player 1', p2Name: result.player2 || p2Key,
+                   debug: result.debug || false, pvp: isPvp,
                    originalMain1: null, originalSideboard1: null, currentSwaps: { sbIn: [], sbOut: [] } };
     // For Constructed: fetch deck detail to get sideboard (fire-and-forget)
     if (format === 'Constructed') {
@@ -723,6 +788,40 @@ async function startPlayGame() {
   } finally {
     btn.disabled = false;
     btn.textContent = '▶ Start Game';
+  }
+}
+
+// ── Guest join (remote/Hamachi mode) ──────────────────────────────────────
+
+async function guestJoinGame() {
+  const statusEl = document.getElementById('guest-join-status');
+  const btn = document.getElementById('btn-guest-join');
+  if (statusEl) statusEl.textContent = 'Recherche de partie…';
+  if (btn) btn.disabled = true;
+  try {
+    const data = await window.forgeApi.get('/api/game/active');
+    const sessions = (data.sessions || []).filter(s => s.pvp);
+    if (!sessions.length) {
+      if (statusEl) statusEl.textContent = 'Aucune partie PvP en cours. Demandez à l\'hôte de démarrer une partie.';
+      return;
+    }
+    const session = sessions[0]; // join the first active PvP session
+    playSession = session.id;
+    isPvpGame = true;
+    pvpPlayerIndex = 1; // guest is always player 1
+    pausePolling = false;
+    matchState = { game: 1, wins: { 'Player 1': 0, 'Player 2': 0 },
+                   deck1: '?', deck2: '?', format: 'Commander',
+                   p1Name: 'Player 1', p2Name: 'Player 2', pvp: true,
+                   originalMain1: null, originalSideboard1: null, currentSwaps: { sbIn: [], sbOut: [] } };
+    document.getElementById('play-setup').classList.add('hidden');
+    document.getElementById('play-board').classList.remove('hidden');
+    updateMatchScore();
+    startPolling();
+  } catch (e) {
+    if (statusEl) statusEl.textContent = 'Erreur : ' + (e.message || e);
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -924,7 +1023,8 @@ async function doPoll() {
 async function concedeGame() {
   if (!playSession) return;
   try {
-    await window.forgeApi.post('/api/game/' + playSession + '/concede', {});
+    await window.forgeApi.post('/api/game/' + playSession + '/concede',
+      isPvpGame ? { playerIndex: pvpPlayerIndex } : {});
   } catch { /* ignore */ }
   // Force an immediate poll so gameOver is detected without waiting for the timer
   setTimeout(doPoll, 200);
@@ -1060,14 +1160,16 @@ async function startNextGame() {
     }
     // Loser of last game goes first (winner != null: other player is loser; null = concede = player 1 lost)
     const lastWinner = matchState.lastWinner;
-    body.goFirstPlayerIndex = (!lastWinner || lastWinner === 'AI') ? 0 : 1;
+    body.goFirstPlayerIndex = (!lastWinner || lastWinner === 'AI' || lastWinner === 'Player 2') ? 0 : 1;
     if (matchState.debug) body.debug = true;
+    if (matchState.pvp) body.pvp = true;
     const result = await Promise.race([
       window.forgeApi.post('/api/game/start', body),
       new Promise((_, reject) => setTimeout(() => reject(new Error('POST /api/game/start timeout 12s')), 12000))
     ]);
     if (result.error) throw new Error(result.error);
     playSession = result.sessionId;
+    isPvpGame = !!result.pvp;
     const debugBar = document.getElementById('debug-bar');
     if (debugBar) debugBar.classList.toggle('hidden', !result.debug);
     document.getElementById('play-board').classList.remove('hidden');
@@ -1484,11 +1586,16 @@ function renderGameState(state) {
     });
   }
 
-  // Players (index 0 = self = Player 1, index 1 = opponent = Player 2)
+  // Players — guest (pvpPlayerIndex=1) sees things flipped: their player is index 1
   const players = state.players || [];
   if (players.length >= 2) {
-    renderPlayer(players[0], 'self');
-    renderPlayer(players[1], 'opp');
+    if (pvpPlayerIndex === 1) {
+      renderPlayer(players[1], 'self');
+      renderPlayer(players[0], 'opp');
+    } else {
+      renderPlayer(players[0], 'self');
+      renderPlayer(players[1], 'opp');
+    }
   } else if (players.length === 1) {
     renderPlayer(players[0], 'self');
   }
@@ -2449,6 +2556,15 @@ function renderDecision(decision) {
   const data = decision.data || {};
   const playerIdx = decision.player ?? 0;
 
+  // PvP: if the pending decision is for the opponent, show waiting indicator and block actions
+  if (isPvpGame && playerIdx !== pvpPlayerIndex) {
+    bar.classList.remove('hidden');
+    typeEl.textContent = '⏳ Adversaire réfléchit…';
+    btnsEl.innerHTML = '';
+    passBtn.classList.add('hidden');
+    return;
+  }
+
   // CONFIRM_ACTION → floating movable dialog, not the bottom bar
   if (type === 'CONFIRM_ACTION' || type === 'CONFIRM_TRIGGER') {
     bar.classList.add('hidden');
@@ -2682,6 +2798,7 @@ function makeDecisionBtn(label, extraClass, onClick) {
 async function sendDecision(body) {
   if (!playSession) return;
   try {
+    if (isPvpGame) body = { ...body, playerIndex: pvpPlayerIndex };
     const res = await window.forgeApi.post('/api/game/' + playSession + '/respond', body);
     console.log('[sendDecision] body:', JSON.stringify(body), '| response:', JSON.stringify(res));
     // Wait for game thread to process before polling

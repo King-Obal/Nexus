@@ -65,7 +65,12 @@ public class GameServlet extends HttpServlet {
             handleStart(req, resp);
         } else if (uri.contains("/game/") && uri.endsWith("/concede")) {
             String id = extractId(uri, "/concede");
-            handleConcede(id, resp);
+            int concedingPlayer = 0;
+            try {
+                Map<?, ?> b = mapper.readValue(req.getInputStream(), Map.class);
+                if (b.get("playerIndex") instanceof Number n) concedingPlayer = n.intValue();
+            } catch (Exception ignored) {}
+            handleConcede(id, resp, concedingPlayer);
         } else if (uri.contains("/game/") && uri.endsWith("/respond")) {
             String id = extractId(uri, "/respond");
             handleRespond(id, req, resp);
@@ -87,7 +92,9 @@ public class GameServlet extends HttpServlet {
         resp.setContentType("application/json;charset=UTF-8");
         String uri = req.getRequestURI();
 
-        if (uri.contains("/game/commanders")) {
+        if (uri.endsWith("/game/active")) {
+            handleActive(resp);
+        } else if (uri.contains("/game/commanders")) {
             handleGetCommanders(req, resp);
         } else if (uri.contains("/game/") && uri.endsWith("/state")) {
             String id = extractId(uri, "/state");
@@ -135,6 +142,7 @@ public class GameServlet extends HttpServlet {
         String commander2Name = getString(body, "commander2");
         int goFirstPlayerIndex = body.get("goFirstPlayerIndex") instanceof Number n ? n.intValue() : -1;
         boolean isDebug = Boolean.TRUE.equals(body.get("debug"));
+        boolean isPvp = Boolean.TRUE.equals(body.get("pvp"));
 
         // Sideboard swaps: sideboardIn = names to add to main, sideboardOut = names to remove from main
         List<String> sideboardIn = new ArrayList<>();
@@ -175,6 +183,7 @@ public class GameServlet extends HttpServlet {
         // Create session immediately — respond to client before starting the game (avoid socket hang up)
         GameSession session = GameSessionManager.getInstance().create();
         if (isDebug) session.setDebug(true);
+        if (isPvp) session.setPvp(true);
         if (goFirstPlayerIndex >= 0) session.setForcedFirstPlayerIndex(goFirstPlayerIndex);
 
         final Deck fd1 = d1, fd2 = d2;
@@ -183,6 +192,7 @@ public class GameServlet extends HttpServlet {
         final String fCommander1Name = commander1Name;
         final String fCommander2Name = commander2Name;
         final boolean fIsDebug = isDebug;
+        final boolean fIsPvp = isPvp;
         final int fGoFirstPlayerIndex = goFirstPlayerIndex;
         final List<String> fSideboardIn = sideboardIn;
         final List<String> fSideboardOut = sideboardOut;
@@ -259,7 +269,10 @@ public class GameServlet extends HttpServlet {
                     if (!chosen.isEmpty()) rp1.setCommanders(chosen);
                 }
                 RegisteredPlayer rp2 = fIsCommander ? RegisteredPlayer.forCommander(fd2) : new RegisteredPlayer(fd2);
-                if (fIsDebug) {
+                if (fIsPvp) {
+                    // PvP: player 2 is also a human controlled via REST
+                    rp2.setPlayer(new LobbyPlayerApi(p2Name, session, 1));
+                } else if (fIsDebug) {
                     // Mode debug : adversaire fantoche qui ne fait rien
                     LobbyPlayer passiveLobby = new LobbyPlayerAi(p2Name, null) {
                         @Override
@@ -322,11 +335,12 @@ public class GameServlet extends HttpServlet {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("sessionId", session.getId());
         result.put("player1", "Player 1");
-        result.put("player2", "AI");
+        result.put("player2", isPvp ? "Player 2" : "AI");
         result.put("format", gameType.name());
         result.put("deck1", d1.getName());
         result.put("deck2", d2.getName());
         result.put("debug", isDebug);
+        result.put("pvp", isPvp);
         mapper.writeValue(resp.getWriter(), result);
     }
 
@@ -365,6 +379,21 @@ public class GameServlet extends HttpServlet {
         Map<String, Object> body = new LinkedHashMap<>();
         for (Map.Entry<?, ?> entry : rawBody.entrySet()) {
             body.put(String.valueOf(entry.getKey()), entry.getValue());
+        }
+
+        // In PvP mode, validate that the responding client is the correct player
+        if (session.isPvp()) {
+            int respondingPlayer = body.get("playerIndex") instanceof Number n ? n.intValue() : 0;
+            Map<String, Object> pending = session.getPendingDecision();
+            if (pending != null) {
+                int expectedPlayer = pending.get("player") instanceof Number n ? n.intValue() : 0;
+                if (respondingPlayer != expectedPlayer) {
+                    resp.setStatus(403);
+                    mapper.writeValue(resp.getWriter(), error("Not your turn (expected player " + expectedPlayer + ")"));
+                    return;
+                }
+            }
+            body.remove("playerIndex"); // strip internal field before passing to game
         }
 
         boolean delivered = session.receiveDecision(body);
@@ -542,6 +571,10 @@ public class GameServlet extends HttpServlet {
     // ── POST /api/game/{id}/concede ──────────────────────────────────────────
 
     private void handleConcede(String id, HttpServletResponse resp) throws IOException {
+        handleConcede(id, resp, 0); // default: player 0 concedes
+    }
+
+    private void handleConcede(String id, HttpServletResponse resp, int concedingPlayer) throws IOException {
         GameSession session = GameSessionManager.getInstance().get(id);
         if (session == null) {
             resp.setStatus(404);
@@ -551,7 +584,13 @@ public class GameServlet extends HttpServlet {
         forge.game.Game game = session.getGame();
         // Mark session over immediately so the next poll returns gameOver=true
         session.setGameOver(true);
-        session.setConcedeWinner("AI"); // player 1 conceded → AI wins
+        String concedeWinner;
+        if (session.isPvp()) {
+            concedeWinner = concedingPlayer == 0 ? "Player 2" : "Player 1";
+        } else {
+            concedeWinner = "AI"; // single-player: AI always wins when player concedes
+        }
+        session.setConcedeWinner(concedeWinner);
         if (game != null) {
             try {
                 java.util.List<Player> players = new java.util.ArrayList<>(game.getPlayers());
@@ -566,6 +605,21 @@ public class GameServlet extends HttpServlet {
         session.receiveDecision(Map.of("choice", "pass"));
         session.interruptGameThread();
         mapper.writeValue(resp.getWriter(), Map.of("ok", true));
+    }
+
+    // ── GET /api/game/active ─────────────────────────────────────────────────
+
+    private void handleActive(HttpServletResponse resp) throws IOException {
+        List<Map<String, Object>> sessions = new ArrayList<>();
+        for (GameSession s : GameSessionManager.getInstance().all()) {
+            if (!s.isGameOver()) {
+                Map<String, Object> info = new LinkedHashMap<>();
+                info.put("id", s.getId());
+                info.put("pvp", s.isPvp());
+                sessions.add(info);
+            }
+        }
+        mapper.writeValue(resp.getWriter(), Map.of("sessions", sessions));
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
