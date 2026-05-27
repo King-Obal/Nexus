@@ -22,34 +22,35 @@ if not errorlevel 1 (
   exit /b 1
 )
 
-:: Detecter le chemin absolu de renderer.js
+:: Recherche recursive de renderer.js
 set RENDERER=
-if exist "%~dp0resources\app\src\renderer.js"          set RENDERER=%~dp0resources\app\src\renderer.js
-if exist "%~dp0resources\app\renderer.js"              set RENDERER=%~dp0resources\app\renderer.js
-if exist "%~dp0ForgeMTG\resources\app\src\renderer.js" set RENDERER=%~dp0ForgeMTG\resources\app\src\renderer.js
-if exist "%~dp0ForgeMTG\resources\app\renderer.js"     set RENDERER=%~dp0ForgeMTG\resources\app\renderer.js
+for /f "delims=" %%F in ('dir /s /b "%~dp0renderer.js" 2^>nul') do (
+  if "!RENDERER!"=="" set RENDERER=%%F
+)
+
+:: Recherche recursive de forge-api.jar
+set JAR=
+for /f "delims=" %%F in ('dir /s /b "%~dp0forge-api.jar" 2^>nul') do (
+  if "!JAR!"=="" set JAR=%%F
+)
 
 if "%RENDERER%"=="" (
-  echo  [!] renderer.js introuvable. Verifiez que mise-a-jour.bat
-  echo      est bien dans le dossier de ForgeMTG.exe.
+  echo  [!] renderer.js introuvable dans :
+  echo      %~dp0
   echo.
+  echo  Verifiez que mise-a-jour.bat est dans le dossier de ForgeMTG.exe.
   pause
   exit /b 1
 )
-echo  renderer.js detecte : %RENDERER%
-
-:: Detecter le chemin absolu de forge-api.jar
-set JAR=
-if exist "%~dp0forge-api\forge-api.jar"          set JAR=%~dp0forge-api\forge-api.jar
-if exist "%~dp0ForgeMTG\forge-api\forge-api.jar" set JAR=%~dp0ForgeMTG\forge-api\forge-api.jar
-
 if "%JAR%"=="" (
-  echo  [!] forge-api.jar introuvable.
-  echo.
+  echo  [!] forge-api.jar introuvable dans :
+  echo      %~dp0
   pause
   exit /b 1
 )
-echo  forge-api.jar detecte : %JAR%
+
+echo  renderer.js : %RENDERER%
+echo  forge-api.jar: %JAR%
 echo.
 
 echo  Telechargement de renderer.js...
