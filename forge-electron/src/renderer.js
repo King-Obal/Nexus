@@ -163,13 +163,17 @@ function parseDeckList(text) {
     };
   }
 
-  // Original behavior: 1 section = mainboard only, 2+ = main + commander
+  // 1 section = mainboard only
   if (!mainSections.length) return { mainboard: [], commanders: [], sideboard: [] };
   if (mainSections.length === 1) return { mainboard: parseCards(mainSections[0]), commanders: [], sideboard: [] };
+  // 2+ sections: last section is sideboard if it has >2 entries (Constructed 60/15),
+  // commander if it has 1–2 entries (Commander / partner)
+  const lastCards = parseCards(mainSections[mainSections.length - 1]);
+  const isLikelySideboard = lastCards.length > 2;
   return {
     mainboard:  mainSections.slice(0, -1).flatMap(parseCards),
-    commanders: parseCards(mainSections[mainSections.length - 1]),
-    sideboard:  []
+    commanders: isLikelySideboard ? [] : lastCards,
+    sideboard:  isLikelySideboard ? lastCards : []
   };
 }
 
