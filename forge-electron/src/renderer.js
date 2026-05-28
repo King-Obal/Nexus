@@ -4889,7 +4889,7 @@ function makeLazyCardImg(cardName) {
 
 // ── Deck Builder ───────────────────────────────────────────────────────────
 
-let builderDeck = { name: '', format: 'Commander', commander: [], mainboard: [] };
+let builderDeck = { name: '', format: 'Commander', commander: [], mainboard: [], sideboard: [] };
 let builderInited = false;
 let builderViewMode = localStorage.getItem('builder:viewMode') || 'list';   // 'list' | 'visual'
 let builderSortBy   = localStorage.getItem('builder:sortBy')   || 'cmc';   // 'cmc' | 'name'
@@ -5045,7 +5045,7 @@ async function builderSearch() {
 
 // ── Deck state ─────────────────────────────────────────
 async function builderAddCard(name, section) {
-  const list = section === 'cmd' ? builderDeck.commander : builderDeck.mainboard;
+  const list = section === 'cmd' ? builderDeck.commander : section === 'side' ? builderDeck.sideboard : builderDeck.mainboard;
   const existing = list.find(c => c.name === name);
   if (existing) existing.qty++;
   else list.push({ name, qty: 1 });
@@ -5054,7 +5054,7 @@ async function builderAddCard(name, section) {
 }
 
 function builderRemoveCard(name, section) {
-  const list = section === 'cmd' ? builderDeck.commander : builderDeck.mainboard;
+  const list = section === 'cmd' ? builderDeck.commander : section === 'side' ? builderDeck.sideboard : builderDeck.mainboard;
   const idx = list.findIndex(c => c.name === name);
   if (idx === -1) return;
   if (list[idx].qty > 1) list[idx].qty--;
@@ -5063,7 +5063,7 @@ function builderRemoveCard(name, section) {
 }
 
 function builderNew() {
-  builderDeck = { name: '', format: 'Commander', commander: [], mainboard: [] };
+  builderDeck = { name: '', format: 'Commander', commander: [], mainboard: [], sideboard: [] };
   document.getElementById('builder-deck-name').value = '';
   document.getElementById('builder-deck-format').value = 'Commander';
   builderRenderDeck();
@@ -5075,10 +5075,11 @@ function builderRenderDeck() {
   const status  = document.getElementById('builder-status');
   const mainTotal = builderDeck.mainboard.reduce((s, c) => s + c.qty, 0);
   const cmdTotal  = builderDeck.commander.reduce((s, c) => s + c.qty, 0);
-  const total = mainTotal + cmdTotal;
+  const sbTotal   = (builderDeck.sideboard || []).reduce((s, c) => s + c.qty, 0);
+  const total = mainTotal + cmdTotal + sbTotal;
 
   status.textContent = total
-    ? `${total} carte${total > 1 ? 's' : ''} — main: ${mainTotal}, commander: ${cmdTotal}`
+    ? `${total} carte${total > 1 ? 's' : ''} — main: ${mainTotal}${sbTotal ? ', side: ' + sbTotal : ''}, commander: ${cmdTotal}`
     : '';
 
   content.innerHTML = '';
@@ -5095,6 +5096,9 @@ function builderRenderDeck() {
     content.appendChild(mkSection('Commander', builderDeck.commander, 'cmd'));
   }
   content.appendChild(mkSection('Mainboard', builderDeck.mainboard, 'main'));
+  if ((builderDeck.sideboard || []).length) {
+    content.appendChild(mkSection('Sideboard', builderDeck.sideboard, 'side'));
+  }
 }
 
 function builderMakeListSection(title, cards, section) {
@@ -5229,7 +5233,8 @@ async function builderSave() {
     name,
     format: builderDeck.format,
     mainboard: builderDeck.mainboard,
-    commander: builderDeck.commander
+    commander: builderDeck.commander,
+    sideboard: builderDeck.sideboard || []
   };
 
   const btn = document.getElementById('builder-save-btn');
@@ -5285,10 +5290,12 @@ async function builderOpenDeck(name, format) {
     builderDeck.format = format;
     builderDeck.commander = [];
     builderDeck.mainboard = [];
+    builderDeck.sideboard = [];
 
     (data.cards || []).forEach(c => {
       const entry = { name: c.name, qty: c.qty || 1 };
       if (c.section === 'Commander') builderDeck.commander.push(entry);
+      else if (c.section === 'Sideboard') builderDeck.sideboard.push(entry);
       else builderDeck.mainboard.push(entry);
     });
 
