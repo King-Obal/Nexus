@@ -1,8 +1,10 @@
 package forge.api.servlet;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import forge.StaticData;
 import forge.deck.Deck;
 import forge.deck.DeckSection;
+import forge.item.PaperCard;
 import forge.model.FModel;
 import forge.util.storage.IStorage;
 
@@ -10,6 +12,7 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.text.Normalizer;
 import java.util.*;
 
 /**
@@ -150,11 +153,40 @@ public class ImportDeckServlet extends HttpServlet {
         mapper.writeValue(resp.getWriter(), result);
     }
 
-    /** Strip MDFC back-face from names like "Cragcrown Pathway // Timbercrown Pathway" */
+    /** Strip MDFC back-face then resolve to canonical Forge name (handles accented names like Lórien Revealed). */
     private static String forgeName(String name) {
         if (name == null) return "";
         int idx = name.indexOf(" // ");
-        return idx >= 0 ? name.substring(0, idx).trim() : name;
+        String clean = (idx >= 0 ? name.substring(0, idx) : name).trim();
+        return resolveCardName(clean);
+    }
+
+    // Lazy-initialized map: accent-stripped lowercase → canonical Forge card name
+    private static volatile Map<String, String> normalizedNameCache = null;
+
+    private static String resolveCardName(String name) {
+        if (name == null || name.isEmpty()) return name;
+        // Fast path: exact match already in Forge DB
+        if (StaticData.instance().getCommonCards().getCard(name) != null) return name;
+        // Slow path: build accent-normalized lookup table on first use
+        Map<String, String> cache = normalizedNameCache;
+        if (cache == null) {
+            Map<String, String> built = new HashMap<>();
+            try {
+                for (PaperCard card : StaticData.instance().getCommonCards().getUniqueCards()) {
+                    built.putIfAbsent(stripAccents(card.getName()), card.getName());
+                }
+            } catch (Exception ignored) {}
+            normalizedNameCache = cache = built;
+        }
+        String resolved = cache.get(stripAccents(name));
+        return resolved != null ? resolved : name;
+    }
+
+    private static String stripAccents(String s) {
+        return Normalizer.normalize(s, Normalizer.Form.NFD)
+                .replaceAll("\\p{InCombiningDiacriticalMarks}+", "")
+                .toLowerCase();
     }
 
     private static String getString(Map<?, ?> map, String key) {

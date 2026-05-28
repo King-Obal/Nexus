@@ -166,6 +166,23 @@ public class PlayerControllerApi extends PlayerController {
             }
         }
 
+        // Auto-pass during COMBAT_BEGIN when no creatures can attack and no spells to cast
+        if (isMyTurn && !hasStack && phase == forge.game.phase.PhaseType.COMBAT_BEGIN) {
+            boolean anyCanAttack = false;
+            for (Card c : player.getCreaturesInPlay()) {
+                if (CombatUtil.canAttack(c)) { anyCanAttack = true; break; }
+            }
+            if (!anyCanAttack) {
+                boolean hasSpellAction = false;
+                for (Map<String, Object> o : allOptions) {
+                    if (!Boolean.TRUE.equals(o.get("isMana")) && !Boolean.TRUE.equals(o.get("isLand"))) {
+                        hasSpellAction = true; break;
+                    }
+                }
+                if (!hasSpellAction) return null;
+            }
+        }
+
         Map<String, Object> data = new LinkedHashMap<>();
         // Send ALL options (including mana) so bf card clicks can find mana abilities
         data.put("options", allOptions);
@@ -173,7 +190,6 @@ public class PlayerControllerApi extends PlayerController {
         if (!isMyTurn) data.put("opponentTurn", true);
         if (phase != null) data.put("phase", phase.name());
 
-        // Always ask the player — no auto-pass. Player 1 manually validates every priority window.
         session.publishDecision("CHOOSE_ACTION", playerIndex, data);
         Map<String, Object> response = awaitOrAbort(10, TimeUnit.MINUTES);
 

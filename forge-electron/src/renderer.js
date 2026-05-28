@@ -460,7 +460,8 @@ function renderDeckGrid() {
     return;
   }
   const commanders = currentDeckCards.filter(c => c.section === 'Commander');
-  const main       = currentDeckCards.filter(c => c.section !== 'Commander');
+  const main       = currentDeckCards.filter(c => c.section === 'Main');
+  const sideboard  = currentDeckCards.filter(c => c.section === 'Sideboard');
 
   const typeOrder  = ['Land','Creature','Planeswalker','Battle','Instant','Sorcery','Enchantment','Artifact','Other'];
   const colorOrder = ['W','U','B','R','G','Multicolor','Colorless'];
@@ -532,6 +533,13 @@ function renderDeckGrid() {
       html += '</div></div>';
     }
   }
+  if (sideboard.length) {
+    const sbTotal = sideboard.reduce((s, c) => s + c.qty, 0);
+    html += `<div class="card-group"><h3 class="group-header">Sideboard <span class="group-count">(${sbTotal})</span></h3><div class="card-row">`;
+    for (const c of sideboard) html += cardTile(c);
+    html += '</div></div>';
+  }
+
   deckGrid.innerHTML = html;
 }
 
@@ -1510,6 +1518,8 @@ async function startNextGame() {
   winnerEl.textContent = '⏳ Étape 3/3 — Démarrage game ' + matchState.game + '…';
   try {
     const body = { deck1: matchState.deck1, deck2: matchState.deck2, format: matchState.format };
+    if (matchState.p1Name) body.player1Name = matchState.p1Name;
+    if (matchState.p2Name) body.player2Name = matchState.p2Name;
     if (selectedCommanders && selectedCommanders[0]) body.commander1 = selectedCommanders[0];
     if (selectedCommanders && selectedCommanders[1]) body.commander2 = selectedCommanders[1];
     // Pass sideboard swaps for Constructed
