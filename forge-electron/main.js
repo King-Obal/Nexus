@@ -147,6 +147,20 @@ function withTimeout(promise, ms, label) {
   return Promise.race([promise, timeout]).finally(function() { clearTimeout(timer); });
 }
 
+function parseJsonOrThrow(data, url) {
+  if (data.trimStart().startsWith('<')) {
+    throw new Error(
+      'Le serveur a répondu avec du HTML au lieu de JSON.\n' +
+      'URL appelée : ' + url + '\n' +
+      'Causes possibles :\n' +
+      '  • URL Hamachi incorrecte dans Paramètres (format requis : http://25.x.x.x:4567)\n' +
+      '  • Port manquant ou erroné\n' +
+      '  • Version de Nexus trop ancienne chez l\'hôte — mettre à jour avec mise-a-jour.bat'
+    );
+  }
+  return JSON.parse(data);
+}
+
 function fetchJson(endpoint) {
   var url = getApiBase() + endpoint;
   return withTimeout(new Promise(function(resolve, reject) {
@@ -154,7 +168,7 @@ function fetchJson(endpoint) {
       var data = '';
       res.on('data', function(c) { data += c; });
       res.on('end', function() {
-        try { resolve(JSON.parse(data)); }
+        try { resolve(parseJsonOrThrow(data, url)); }
         catch (e) { reject(e); }
       });
     }).on('error', reject);
@@ -163,11 +177,14 @@ function fetchJson(endpoint) {
 
 function postJson(endpoint, body) {
   return withTimeout(new Promise(function(resolve, reject) {
+    var base = getApiBase();
     var payload = JSON.stringify(body);
-    var parsed = new URL(getApiBase());
+    var parsed = new URL(base);
+    var port = parseInt(parsed.port);
+    if (!port) port = parsed.protocol === 'https:' ? 443 : 80;
     var opts = {
       hostname: parsed.hostname,
-      port: parseInt(parsed.port) || (parsed.protocol === 'https:' ? 443 : 80),
+      port: port,
       path: endpoint,
       method: 'POST',
       headers: {
@@ -179,7 +196,7 @@ function postJson(endpoint, body) {
       var data = '';
       res.on('data', function(c) { data += c; });
       res.on('end', function() {
-        try { resolve(JSON.parse(data)); }
+        try { resolve(parseJsonOrThrow(data, base + endpoint)); }
         catch (e) { reject(e); }
       });
     });
