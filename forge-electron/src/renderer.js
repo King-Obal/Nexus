@@ -398,46 +398,60 @@ async function loadDeckView(name, format) {
 async function fetchScryfallBatch(names) {
   const toFetch = [...new Set(names)].filter(n => !scryfallCards.has(n));
   if (!toFetch.length) return;
-  for (let i = 0; i < toFetch.length; i += 75) {
-    const batch = toFetch.slice(i, i + 75);
-    const identifiers = batch.map(n => ({ name: n }));
-    try {
-      const r = await fetch('https://api.scryfall.com/cards/collection', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ identifiers })
-      });
-      if (!r.ok) continue;
-      const d = await r.json();
-      for (const card of d.data || []) {
-        scryfallCards.set(card.name, card);
-        // Index each face name individually
-        if (card.name.includes(' // ')) {
-          for (const face of card.name.split(' // '))
-            scryfallCards.set(face.trim(), card);
+
+  const scryfallPost = async ids => {
+    const r = await fetch('https://api.scryfall.com/cards/collection', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ identifiers: ids })
+    });
+    if (!r.ok) return [];
+    return (await r.json()).data || [];
+  };
+
+  const indexCards = (cards, origBatch) => {
+    const stripAccents = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+    for (const card of cards) {
+      scryfallCards.set(card.name, card);
+      if (card.name.includes(' // '))
+        for (const face of card.name.split(' // ')) scryfallCards.set(face.trim(), card);
+    }
+    // Accent fallback (e.g. "Lorien Revealed" → "Lórien Revealed")
+    for (const orig of origBatch) {
+      if (scryfallCards.has(orig)) continue;
+      const norm = stripAccents(orig);
+      for (const card of cards) {
+        if (stripAccents(card.name) === norm ||
+            (card.name.includes(' // ') && stripAccents(card.name.split(' // ')[0].trim()) === norm)) {
+          scryfallCards.set(orig, card); break;
         }
       }
-      // Also index original Forge names that differ only by diacritics (e.g. "Lorien Revealed" → "Lórien Revealed")
-      const stripAccents = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
-      for (const origName of batch) {
-        if (scryfallCards.has(origName)) continue;
-        const normOrig = stripAccents(origName);
-        for (const card of d.data || []) {
-          if (stripAccents(card.name) === normOrig ||
-              (card.name.includes(' // ') && stripAccents(card.name.split(' // ')[0].trim()) === normOrig)) {
-            scryfallCards.set(origName, card);
-            break;
+    }
+  };
+
+  for (let i = 0; i < toFetch.length; i += 75) {
+    const batch = toFetch.slice(i, i + 75);
+    try {
+      // Pass 1: full name (works for simple cards + most MDFCs)
+      const cards1 = await scryfallPost(batch.map(n => ({ name: n })));
+      indexCards(cards1, batch);
+
+      // Pass 2: for split/MDFC cards not found, retry with front-face name
+      const missing = batch.filter(n => n.includes(' // ') && !scryfallCards.has(n));
+      if (missing.length) {
+        const cards2 = await scryfallPost(missing.map(n => ({ name: n.split(' // ')[0].trim() })));
+        indexCards(cards2, missing);
+        // Also match by front-face to cover "Fire // Ice" → returned as "Fire // Ice"
+        for (const orig of missing) {
+          if (scryfallCards.has(orig)) continue;
+          const front = orig.split(' // ')[0].trim();
+          for (const card of cards2) {
+            if (card.name.split(' // ')[0].trim() === front) {
+              scryfallCards.set(orig, card); break;
+            }
           }
         }
       }
     } catch { /* fallback to text tile */ }
-    // Also index original Forge MDFC names ("A // B") → front face lookup
-    for (const origName of batch) {
-      if (origName.includes(' // ') && !scryfallCards.has(origName)) {
-        const card = scryfallCards.get(origName.split(' // ')[0].trim());
-        if (card) scryfallCards.set(origName, card);
-      }
-    }
     if (i + 75 < toFetch.length) await new Promise(res => setTimeout(res, 100));
   }
 }
@@ -753,9 +767,9 @@ autoPassBtn.addEventListener('click', () => {
 
 let holdPriority = false;
 const holdPriorityBtn = document.getElementById('btn-hold-priority');
-holdPriorityBtn.addEventListener('click', () => {
+holdPriorityBtn?.addEventListener('click', () => {
   holdPriority = !holdPriority;
-  holdPriorityBtn.classList.toggle('active', holdPriority);
+  holdPriorityBtn?.classList.toggle('active', holdPriority);
 });
 document.getElementById('zone-viewer-close').addEventListener('click', () =>
   document.getElementById('zone-viewer-modal').classList.add('hidden'));
@@ -1399,7 +1413,7 @@ function resetPlayView() {
   autoPassEOT = false;
   autoPassBtn.classList.remove('active');
   holdPriority = false;
-  holdPriorityBtn.classList.remove('active');
+  holdPriorityBtn?.classList.remove('active');
   pvpPlayerIndex = 0;
   document.getElementById('play-setup').classList.remove('hidden');
   document.getElementById('play-board').classList.add('hidden');
@@ -2926,7 +2940,7 @@ function renderDecision(decision) {
   }
   if (decision && decision.seq != null) _lastRenderedDecisionSeq = decision.seq;
   else _lastRenderedDecisionSeq = null;
-  holdPriorityBtn.classList.add('hidden');
+  holdPriorityBtn?.classList.add('hidden');
 
   if (!decision) {
     const isGameActive = playState && !playState.gameOver && (playState.players?.length ?? 0) > 0;
@@ -3021,7 +3035,7 @@ function renderDecision(decision) {
 
   if (type === 'CHOOSE_ACTION') {
     passBtn.classList.remove('hidden');
-    holdPriorityBtn.classList.remove('hidden');
+    holdPriorityBtn?.classList.remove('hidden');
     // Highlight playable hand cards
     const handOpts = (data.options || []).filter(o => o.zone?.toUpperCase() === 'HAND');
     const playableIds = new Set(handOpts.map(o => String(o.cardId)));

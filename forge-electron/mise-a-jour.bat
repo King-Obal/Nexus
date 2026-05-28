@@ -48,12 +48,27 @@ if "%JAR%"=="" (
   exit /b 1
 )
 
+:: Deriver index.html et styles.css depuis le dossier de renderer.js
+for %%F in ("%RENDERER%") do set RENDERER_DIR=%%~dpF
+set INDEX_HTML=%RENDERER_DIR%index.html
+set STYLES_CSS=%RENDERER_DIR%styles.css
+
 echo  renderer.js  : %RENDERER%
+echo  index.html   : %INDEX_HTML%
+echo  styles.css   : %STYLES_CSS%
 echo  forge-api.jar: %JAR%
 echo.
 
 echo  Telechargement de renderer.js...
 powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%BASE_URL%/forge-electron/src/renderer.js' -OutFile '%RENDERER%' -UseBasicParsing; Write-Host '  OK' } catch { Write-Host '  ERREUR:' $_.Exception.Message; exit 1 }"
+if errorlevel 1 goto :error
+
+echo  Telechargement de index.html...
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%BASE_URL%/forge-electron/src/index.html' -OutFile '%INDEX_HTML%' -UseBasicParsing; Write-Host '  OK' } catch { Write-Host '  ERREUR:' $_.Exception.Message; exit 1 }"
+if errorlevel 1 goto :error
+
+echo  Telechargement de styles.css...
+powershell -NoProfile -Command "try { Invoke-WebRequest -Uri '%BASE_URL%/forge-electron/src/styles.css' -OutFile '%STYLES_CSS%' -UseBasicParsing; Write-Host '  OK' } catch { Write-Host '  ERREUR:' $_.Exception.Message; exit 1 }"
 if errorlevel 1 goto :error
 
 echo  Telechargement de forge-api.jar (40 Mo, patience)...
