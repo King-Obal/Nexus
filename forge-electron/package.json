@@ -1,6 +1,6 @@
 {
   "name": "nexus",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "productName": "Nexus",
   "description": "Nexus - MTG Duel Commander Interface",
   "main": "main.js",
