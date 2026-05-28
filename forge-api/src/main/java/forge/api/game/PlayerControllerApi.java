@@ -5,6 +5,7 @@ import com.google.common.collect.ListMultimap;
 import com.google.common.collect.Multimap;
 import forge.LobbyPlayer;
 import forge.ai.ComputerUtil;
+import forge.ai.ComputerUtilCombat;
 import forge.ai.ComputerUtilMana;
 import forge.card.ColorSet;
 import forge.card.ICardFace;
@@ -443,15 +444,7 @@ public class PlayerControllerApi extends PlayerController {
     public Map<Card, Integer> assignCombatDamage(Card attacker, CardCollectionView blockers,
                                                   CardCollectionView remaining, int damageDealt,
                                                   GameEntity defender, boolean overrideOrder) {
-        Map<Card, Integer> result = new HashMap<>();
-        if (blockers.isEmpty()) {
-            // no blockers, damage goes to defender (handled by engine)
-        } else {
-            // Assign all remaining damage to first blocker
-            Card first = blockers.get(0);
-            result.put(first, damageDealt);
-        }
-        return result;
+        return ComputerUtilCombat.distributeAIDamage(player, attacker, blockers, remaining, damageDealt, defender, overrideOrder);
     }
 
     // ── Mana payment: auto-pay via AI logic ───────────────────────────────────
