@@ -1391,6 +1391,18 @@ select option { background: var(--bg-input); }
   border-color: var(--accent-blue); color: var(--accent-blue);
   background: rgba(58,136,200,0.15);
 }
+.hold-priority-btn {
+  flex-shrink: 0;
+  background: none; border: 1px solid #3a5a3a; border-radius: 4px;
+  color: #4a7a4a; font-size: 0.7rem; padding: 4px 10px; cursor: pointer;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+  white-space: nowrap;
+}
+.hold-priority-btn:hover { border-color: #6a9a6a; color: #8ac08a; }
+.hold-priority-btn.active {
+  border-color: #4caf50; color: #4caf50;
+  background: rgba(76,175,80,0.15);
+}
 
 /* ── Debug bar ──────────────────────────────────────────────────────────── */
 .debug-toggle-row { margin: 6px 0 10px; }

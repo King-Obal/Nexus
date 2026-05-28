@@ -742,12 +742,28 @@ document.getElementById('btn-guest-join')?.addEventListener('click', guestJoinGa
 document.getElementById('btn-concede').addEventListener('click', concedeGame);
 document.getElementById('btn-pass-priority').addEventListener('click', () => sendDecision({ choice: 'pass' }));
 
-// ── Auto-pass EOT toggle ───────────────────────────────────────────────────
+// Entrée = passer la priorité (uniquement si btn-pass-priority est visible)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' || e.repeat) return;
+  const focused = document.activeElement;
+  if (focused && ['BUTTON','INPUT','TEXTAREA','SELECT'].includes(focused.tagName)) return;
+  const passBtn = document.getElementById('btn-pass-priority');
+  if (passBtn && !passBtn.classList.contains('hidden')) sendDecision({ choice: 'pass' });
+});
+
+// ── Auto-pass / Hold-priority toggles ─────────────────────────────────────
 let autoPassEOT = false;
 const autoPassBtn = document.getElementById('auto-pass-eot-btn');
 autoPassBtn.addEventListener('click', () => {
   autoPassEOT = !autoPassEOT;
   autoPassBtn.classList.toggle('active', autoPassEOT);
+});
+
+let holdPriority = false;
+const holdPriorityBtn = document.getElementById('btn-hold-priority');
+holdPriorityBtn.addEventListener('click', () => {
+  holdPriority = !holdPriority;
+  holdPriorityBtn.classList.toggle('active', holdPriority);
 });
 document.getElementById('zone-viewer-close').addEventListener('click', () =>
   document.getElementById('zone-viewer-modal').classList.add('hidden'));
@@ -1388,6 +1404,10 @@ function resetPlayView() {
   playState = null;
   matchState = null;
   isPvpGame = false;
+  autoPassEOT = false;
+  autoPassBtn.classList.remove('active');
+  holdPriority = false;
+  holdPriorityBtn.classList.remove('active');
   pvpPlayerIndex = 0;
   document.getElementById('play-setup').classList.remove('hidden');
   document.getElementById('play-board').classList.add('hidden');
@@ -2914,6 +2934,7 @@ function renderDecision(decision) {
   }
   if (decision && decision.seq != null) _lastRenderedDecisionSeq = decision.seq;
   else _lastRenderedDecisionSeq = null;
+  holdPriorityBtn.classList.add('hidden');
 
   if (!decision) {
     const isGameActive = playState && !playState.gameOver && (playState.players?.length ?? 0) > 0;
@@ -2968,13 +2989,13 @@ function renderDecision(decision) {
 
   bar.classList.remove('hidden');
 
-  // Auto-pass EOT: si activé et que c'est le tour adverse (sans stack), passer automatiquement
-  if (autoPassEOT && type === 'CHOOSE_ACTION' && data.opponentTurn && !data.responding) {
-    sendDecision({ choice: 'pass' });
-    return;
-  }
-  // Désactiver l'auto-pass dès que c'est le tour du joueur
-  if (autoPassEOT && type === 'CHOOSE_ACTION' && !data.opponentTurn) {
+  // Auto-pass : fonctionne sur les deux tours, s'arrête à END_OF_TURN (sans stack, sans hold)
+  if (autoPassEOT && !holdPriority && type === 'CHOOSE_ACTION' && !data.responding) {
+    const phase = data.phase || '';
+    if (!['END_OF_TURN', 'ENDOFTURN', 'CLEANUP'].includes(phase)) {
+      sendDecision({ choice: 'pass' });
+      return;
+    }
     autoPassEOT = false;
     autoPassBtn.classList.remove('active');
   }
@@ -3004,11 +3025,11 @@ function renderDecision(decision) {
     (playState?.players?.[playerIdx]?.name ?? 'Player ' + (playerIdx + 1));
   btnsEl.innerHTML = '';
 
-  // Bouton auto-pass visible uniquement pendant le tour adverse
-  autoPassBtn.style.display = (type === 'CHOOSE_ACTION' && data.opponentTurn) ? '' : 'none';
+  autoPassBtn.style.display = (type === 'CHOOSE_ACTION') ? '' : 'none';
 
   if (type === 'CHOOSE_ACTION') {
     passBtn.classList.remove('hidden');
+    holdPriorityBtn.classList.remove('hidden');
     // Highlight playable hand cards
     const handOpts = (data.options || []).filter(o => o.zone?.toUpperCase() === 'HAND');
     const playableIds = new Set(handOpts.map(o => String(o.cardId)));
