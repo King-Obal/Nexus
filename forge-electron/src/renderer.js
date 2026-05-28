@@ -400,8 +400,7 @@ async function fetchScryfallBatch(names) {
   if (!toFetch.length) return;
   for (let i = 0; i < toFetch.length; i += 75) {
     const batch = toFetch.slice(i, i + 75);
-    // For MDFCs, Scryfall batch doesn't accept "A // B" format — send only the front face name
-    const identifiers = batch.map(n => ({ name: n.includes(' // ') ? n.split(' // ')[0].trim() : n }));
+    const identifiers = batch.map(n => ({ name: n }));
     try {
       const r = await fetch('https://api.scryfall.com/cards/collection', {
         method: 'POST',
