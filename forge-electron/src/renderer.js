@@ -2398,7 +2398,7 @@ function renderPlayer(p, prefix) {
   const lifeEl = document.getElementById(prefix + '-life');
   lifeEl.textContent = '♥ ' + p.life;
   lifeEl.dataset.playerId = 'P' + p.id;
-  document.getElementById(prefix + '-hand').textContent = '✋ ' + (p.hand?.length ?? p.handSize ?? 0);
+  document.getElementById(prefix + '-hand').textContent = '✋ ' + (p.handSize ?? p.hand?.length ?? 0);
   const libEl = document.getElementById(prefix + '-library');
   if (libEl) libEl.textContent = p.librarySize ?? 0;
 
