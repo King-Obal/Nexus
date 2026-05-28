@@ -377,13 +377,6 @@ async function populateDeckViewSelect() {
 }
 
 // When Decks tab becomes active, populate if empty
-document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    if (tab.dataset.view === 'decks' && deckViewSelect.options.length <= 1) {
-      populateDeckViewSelect();
-    }
-  });
-});
 
 let currentDeckCards = [];
 
@@ -4904,13 +4897,15 @@ const BUILDER_TYPES = [
   { key: 'sorcery',      label: 'Rituels',        priority: 3 },
   { key: 'enchantment',  label: 'Enchantements',  priority: 4 },
   { key: 'artifact',     label: 'Artefacts',      priority: 5 },
-  { key: 'land',         label: 'Terres',         priority: 6 },
+  { key: 'land',         label: 'Lands',          priority: 6 },
 ];
 
 function builderCardMeta(name) {
-  const sf = scryfallCards.get(name);
+  const frontName = name.includes(' // ') ? name.split(' // ')[0].trim() : name;
+  const sf = scryfallCards.get(name) ?? scryfallCards.get(frontName);
   const cmc = sf?.cmc ?? 0;
-  const tl  = (sf?.type_line || sf?.card_faces?.[0]?.type_line || '').toLowerCase();
+  // Prefer front-face type_line for MDFCs (avoids "Sorcery // Land" → Land)
+  const tl  = (sf?.card_faces?.[0]?.type_line ?? sf?.type_line ?? '').toLowerCase();
   for (const t of BUILDER_TYPES) {
     if (tl.includes(t.key)) return { label: t.label, priority: t.priority, cmc };
   }

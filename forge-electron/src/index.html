@@ -13,8 +13,7 @@
   <header class="topbar">
     <span class="logo">NEXUS</span>
     <nav class="tabs">
-      <button class="tab active" data-view="decks">Decks</button>
-      <button class="tab" data-view="play">Play</button>
+      <button class="tab active" data-view="play">Play</button>
       <button class="tab" data-view="builder">Builder</button>
     </nav>
     <button id="btn-import-moxfield" class="btn-import">⬇ Import Deck</button>
@@ -81,7 +80,7 @@
 
 
     <!-- ── DECKS VIEW ────────────────────────────────── -->
-    <section class="view active" id="view-decks">
+    <section class="view" id="view-decks">
       <div class="deck-view-toolbar">
         <select id="deck-view-format" class="deck-view-ctrl">
           <option value="Commander">Commander</option>
@@ -104,7 +103,7 @@
     </section>
 
     <!-- ── PLAY VIEW ─────────────────────────────────── -->
-    <section class="view" id="view-play">
+    <section class="view active" id="view-play">
 
       <!-- Setup panel (shown before game starts) -->
       <div id="play-setup" class="panel play-setup-panel">
