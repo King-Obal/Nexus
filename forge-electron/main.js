@@ -270,6 +270,20 @@ app.whenReady().then(function() {
   ipcMain.handle('api:get', function(_, endpoint) {
     return fetchJson(endpoint);
   });
+  ipcMain.handle('api:get-local', function(_, endpoint) {
+    // Always hits localhost regardless of guest mode — used for guest's own deck list
+    var url = 'http://localhost:' + API_PORT + endpoint;
+    return withTimeout(new Promise(function(resolve, reject) {
+      http.get(url, function(res) {
+        var data = '';
+        res.on('data', function(c) { data += c; });
+        res.on('end', function() {
+          try { resolve(parseJsonOrThrow(data, url)); }
+          catch (e) { reject(e); }
+        });
+      }).on('error', reject);
+    }), HTTP_TIMEOUT_MS, 'GET-LOCAL ' + endpoint);
+  });
   ipcMain.handle('api:post', function(_, endpoint, body) {
     return postJson(endpoint, body);
   });

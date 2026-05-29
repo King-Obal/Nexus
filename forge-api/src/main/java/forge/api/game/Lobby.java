@@ -1,5 +1,6 @@
 package forge.api.game;
 
+import forge.deck.Deck;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -15,6 +16,7 @@ public class Lobby {
     private String format;
     private final String[] names = new String[2];
     private final String[] decks = new String[2];
+    private final Deck[] deckObjects = new Deck[2]; // in-memory decks sent by guest
     private final boolean[] ready = new boolean[2];
     private String status; // WAITING | FULL | STARTED
     private String sessionId;
@@ -38,6 +40,9 @@ public class Lobby {
 
     public String getPlayerDeck(int i) { return decks[i]; }
     public void setPlayerDeck(int i, String d) { decks[i] = d; touch(); }
+
+    public Deck getPlayerDeckObject(int i) { return deckObjects[i]; }
+    public void setPlayerDeckObject(int i, Deck d) { deckObjects[i] = d; touch(); }
 
     public boolean isReady(int i) { return ready[i]; }
     public void setReady(int i, boolean r) { ready[i] = r; touch(); }

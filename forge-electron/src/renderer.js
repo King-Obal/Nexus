@@ -883,19 +883,12 @@ async function guestJoinGame() {
 document.getElementById('btn-show-online').addEventListener('click', showOnlineSection);
 document.getElementById('btn-online-back').addEventListener('click', showLocalSection);
 document.getElementById('btn-lobby-create').addEventListener('click', createLobby);
-document.getElementById('btn-lobby-join').addEventListener('click', () => {
-  joinLobby(document.getElementById('lobby-join-code').value.trim());
-});
-document.getElementById('lobby-join-code').addEventListener('keydown', e => {
-  if (e.key === 'Enter') joinLobby(document.getElementById('lobby-join-code').value.trim());
-});
 document.getElementById('btn-lobby-ready').addEventListener('click', setLobbyReady);
 document.getElementById('btn-lobby-leave').addEventListener('click', leaveLobby);
-document.getElementById('btn-lobby-copy').addEventListener('click', () => {
-  const code = document.getElementById('lobby-code-display').textContent;
-  navigator.clipboard?.writeText(code).catch(() => {});
-  const hint = document.getElementById('lobby-copy-hint');
-  if (hint) { hint.style.display = 'inline'; setTimeout(() => { hint.style.display = 'none'; }, 1800); }
+document.getElementById('btn-rooms-refresh').addEventListener('click', loadRoomList);
+document.getElementById('lobby-rooms-list').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-join-room');
+  if (btn) joinRoomById(btn.dataset.roomId);
 });
 document.getElementById('lobby-nickname').addEventListener('change', () => {
   const nick = document.getElementById('lobby-nickname').value.trim();
@@ -908,15 +901,72 @@ document.getElementById('lobby-self-deck').addEventListener('change', () => {
   if (btn && !alreadyReady) btn.disabled = !document.getElementById('lobby-self-deck').value;
 });
 
+let roomListTimer = null;
+
+async function loadRoomList() {
+  const listEl = document.getElementById('lobby-rooms-list');
+  if (!listEl) return;
+  try {
+    const data = await window.forgeApi.get('/api/lobby');
+    const lobbies = (data.lobbies || []);
+    if (!lobbies.length) {
+      listEl.innerHTML = '<em style="color:var(--text-secondary)">Aucune salle ouverte pour l\'instant.</em>';
+      return;
+    }
+    listEl.innerHTML = lobbies.map(l =>
+      `<div style="display:flex;justify-content:space-between;align-items:center;padding:5px 8px;margin-bottom:4px;border:1px solid rgba(200,169,110,0.2);border-radius:6px;background:rgba(0,0,0,0.15)">` +
+        `<span><b style="color:var(--text-primary)">${esc(l.host)}</b>` +
+        ` <span style="color:var(--text-secondary);font-size:0.75rem">${esc(l.format)}</span></span>` +
+        `<button class="btn-join-room btn-primary btn-sm" data-room-id="${esc(l.id)}" style="padding:2px 10px;font-size:0.8rem">Rejoindre</button>` +
+      `</div>`
+    ).join('');
+  } catch (e) {
+    listEl.innerHTML = `<em style="color:#e57373">Erreur : ${esc(e.message || e)}</em>`;
+  }
+}
+
+function startRoomListRefresh() {
+  stopRoomListRefresh();
+  loadRoomList();
+  roomListTimer = setInterval(loadRoomList, 3000);
+}
+
+function stopRoomListRefresh() {
+  if (roomListTimer) clearInterval(roomListTimer);
+  roomListTimer = null;
+}
+
+async function joinRoomById(id) {
+  const nickname = document.getElementById('lobby-nickname').value.trim() || 'Joueur 2';
+  const errEl = document.getElementById('lobby-landing-error');
+  errEl.textContent = '';
+  try {
+    const res = await window.forgeApi.post('/api/lobby/' + id + '/join', { playerName: nickname });
+    if (res.error) throw new Error(res.error);
+    if (!res.lobby) throw new Error('Réponse inattendue — vérifiez l\'URL Hamachi dans Paramètres.');
+    lobbyId = res.lobby.id || id;
+    lobbyPlayerIndex = 1;
+    lobbyPrevSessionId = res.lobby.sessionId || null;
+    localStorage.setItem('nexus-nickname', nickname);
+    stopRoomListRefresh();
+    await openLobbyRoom(res.lobby, nickname);
+    startLobbyPoll();
+  } catch (e) {
+    errEl.textContent = 'Erreur : ' + (e.message || e);
+  }
+}
+
 function showOnlineSection() {
   document.getElementById('local-play-section').classList.add('hidden');
   document.getElementById('online-section').classList.remove('hidden');
   const saved = localStorage.getItem('nexus-nickname');
   if (saved) document.getElementById('lobby-nickname').value = saved;
+  startRoomListRefresh();
 }
 
 function showLocalSection() {
   stopLobbyPoll();
+  stopRoomListRefresh();
   document.getElementById('online-section').classList.add('hidden');
   document.getElementById('local-play-section').classList.remove('hidden');
   resetLobbyUI();
@@ -930,7 +980,8 @@ function resetLobbyUI() {
   document.getElementById('lobby-room').classList.add('hidden');
   document.getElementById('lobby-landing-error').textContent = '';
   document.getElementById('lobby-room-status').textContent = '';
-  document.getElementById('lobby-code-display').textContent = '------';
+  document.getElementById('lobby-host-display').textContent = '—';
+  document.getElementById('lobby-format-display').textContent = '';
   document.getElementById('lobby-self-deck').innerHTML = '<option value="">— Choisir un deck —</option>';
   const btn = document.getElementById('btn-lobby-ready');
   if (btn) { btn.disabled = true; btn.textContent = '✓ Je suis prêt !'; }
@@ -961,41 +1012,24 @@ async function createLobby() {
   }
 }
 
-async function joinLobby(code) {
-  if (!code || code.length < 2) return;
-  const nickname = document.getElementById('lobby-nickname').value.trim() || 'Joueur 2';
-  const errEl    = document.getElementById('lobby-landing-error');
-  const btn      = document.getElementById('btn-lobby-join');
-  errEl.textContent = '';
-  btn.disabled = true; btn.textContent = '⏳…';
-  try {
-    const res = await window.forgeApi.post('/api/lobby/' + code.toUpperCase() + '/join', { playerName: nickname });
-    if (res.error) throw new Error(res.error);
-    if (!res.lobby) throw new Error('Réponse inattendue du serveur — vérifiez que l\'URL distante Hamachi est configurée dans Paramètres.');
-    lobbyId = res.lobby.id || code.toUpperCase();
-    lobbyPlayerIndex = 1;
-    lobbyPrevSessionId = res.lobby.sessionId || null;
-    localStorage.setItem('nexus-nickname', nickname);
-    await openLobbyRoom(res.lobby, nickname);
-    startLobbyPoll();
-  } catch (e) {
-    errEl.textContent = 'Erreur : ' + (e.message || e);
-  } finally {
-    btn.disabled = false; btn.textContent = 'Rejoindre';
-  }
-}
 
 async function openLobbyRoom(lobby, myName) {
+  stopRoomListRefresh();
   document.getElementById('lobby-landing').classList.add('hidden');
   document.getElementById('lobby-room').classList.remove('hidden');
-  document.getElementById('lobby-code-display').textContent = lobby.id || lobbyId;
+  const players = lobby.players || [];
+  document.getElementById('lobby-host-display').textContent = players[0]?.name || lobby.id || lobbyId;
+  document.getElementById('lobby-format-display').textContent = lobby.format || '';
   document.getElementById('lobby-self-name').textContent = myName;
 
   const fmt = (lobby.format || 'Commander').replace(' 60', '').toLowerCase();
   const deckSelect = document.getElementById('lobby-self-deck');
   deckSelect.innerHTML = '<option value="">— Choisir un deck —</option>';
   try {
-    const decks = await window.forgeApi.get('/api/decks?format=' + fmt);
+    // Guest loads their own decks from local server; host loads from the game server
+    const decks = lobbyPlayerIndex === 1
+      ? await window.forgeApi.getLocal('/api/decks?format=' + fmt)
+      : await window.forgeApi.get('/api/decks?format=' + fmt);
     for (const d of decks) {
       const opt = document.createElement('option');
       opt.value = d.name; opt.textContent = d.name;
@@ -1048,8 +1082,14 @@ async function setLobbyReady() {
   const btn = document.getElementById('btn-lobby-ready');
   btn.disabled = true; btn.textContent = '⏳…';
   try {
-    const res = await window.forgeApi.post('/api/lobby/' + lobbyId + '/ready',
-      { playerIndex: lobbyPlayerIndex, deckName });
+    const payload = { playerIndex: lobbyPlayerIndex, deckName };
+    if (lobbyPlayerIndex === 1) {
+      try {
+        const detail = await window.forgeApi.getLocal('/api/decks/detail?name=' + encodeURIComponent(deckName));
+        if (detail?.cards?.length) payload.deckCards = detail.cards;
+      } catch {}
+    }
+    const res = await window.forgeApi.post('/api/lobby/' + lobbyId + '/ready', payload);
     document.getElementById('lobby-self-ready-badge').style.display = 'inline';
     btn.textContent = '✅ Prêt';
     if (res.lobby) renderLobbyRoom(res.lobby);
@@ -1071,6 +1111,7 @@ async function leaveLobby() {
   }
   lobbyId = null; lobbyPlayerIndex = 0; lobbyPrevSessionId = null;
   resetLobbyUI();
+  startRoomListRefresh();
 }
 
 function startLobbyPoll() {

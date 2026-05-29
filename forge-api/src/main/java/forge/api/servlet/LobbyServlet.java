@@ -6,6 +6,7 @@ import forge.game.player.Player;
 import forge.game.player.RegisteredPlayer;
 import forge.api.game.*;
 import forge.deck.Deck;
+import forge.deck.DeckSection;
 import forge.model.FModel;
 import forge.util.storage.IStorage;
 
@@ -63,13 +64,24 @@ public class LobbyServlet extends HttpServlet {
         cors(resp);
         resp.setContentType("application/json;charset=UTF-8");
         String uri = req.getRequestURI();
-        // GET /api/lobby/{id}
-        String id = uri.replaceAll(".*/lobby/", "").trim();
+        String id = uri.replaceAll(".*/lobby/?", "").trim();
         if (id.isEmpty()) {
-            resp.setStatus(400);
-            mapper.writeValue(resp.getWriter(), error("Lobby ID required"));
+            // GET /api/lobby → list available lobbies
+            LobbyManager.getInstance().pruneInactive(10 * 60 * 1000L);
+            List<Map<String, Object>> list = new ArrayList<>();
+            for (Lobby lobby : LobbyManager.getInstance().all()) {
+                if ("STARTED".equals(lobby.getStatus())) continue;
+                Map<String, Object> entry = new LinkedHashMap<>();
+                entry.put("id", lobby.getId());
+                entry.put("format", lobby.getFormat());
+                entry.put("host", lobby.getPlayerName(0));
+                entry.put("status", lobby.getStatus());
+                list.add(entry);
+            }
+            mapper.writeValue(resp.getWriter(), Map.of("lobbies", list));
             return;
         }
+        // GET /api/lobby/{id}
         Lobby lobby = LobbyManager.getInstance().get(id);
         if (lobby == null) {
             resp.setStatus(404);
@@ -169,6 +181,15 @@ public class LobbyServlet extends HttpServlet {
         }
 
         lobby.setPlayerDeck(playerIndex, deckName.trim());
+        // Guest may send their own deck data to avoid needing it saved on the host
+        List<?> deckCards = body.get("deckCards") instanceof List ? (List<?>) body.get("deckCards") : null;
+        if (deckCards != null && !deckCards.isEmpty()) {
+            try {
+                lobby.setPlayerDeckObject(playerIndex, buildDeckFromCards(deckCards, deckName.trim()));
+            } catch (Exception e) {
+                System.err.println("[Lobby] Failed to build guest deck: " + e);
+            }
+        }
         lobby.setReady(playerIndex, true);
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -229,8 +250,8 @@ public class LobbyServlet extends HttpServlet {
         String p2Name = lobby.getPlayerName(1);
 
         boolean isCommander = !format.equalsIgnoreCase("Constructed");
-        Deck d1 = findDeck(deck1Name);
-        Deck d2 = findDeck(deck2Name);
+        Deck d1 = lobby.getPlayerDeckObject(0) != null ? lobby.getPlayerDeckObject(0) : findDeck(deck1Name);
+        Deck d2 = lobby.getPlayerDeckObject(1) != null ? lobby.getPlayerDeckObject(1) : findDeck(deck2Name);
         if (d1 == null) throw new IllegalArgumentException("Deck introuvable: " + deck1Name);
         if (d2 == null) throw new IllegalArgumentException("Deck introuvable: " + deck2Name);
 
@@ -273,6 +294,23 @@ public class LobbyServlet extends HttpServlet {
         gameThread.start();
 
         return session.getId();
+    }
+
+    private Deck buildDeckFromCards(List<?> cards, String name) {
+        Deck deck = new Deck(name);
+        for (Object entry : cards) {
+            if (!(entry instanceof Map)) continue;
+            Map<?, ?> m = (Map<?, ?>) entry;
+            String cardName = m.get("name") instanceof String ? (String) m.get("name") : null;
+            int qty = m.get("qty") instanceof Number ? ((Number) m.get("qty")).intValue() : 1;
+            String section = m.get("section") instanceof String ? (String) m.get("section") : "Main";
+            if (cardName == null || cardName.trim().isEmpty()) continue;
+            DeckSection ds = "Commander".equalsIgnoreCase(section) ? DeckSection.Commander
+                           : "Sideboard".equalsIgnoreCase(section) ? DeckSection.Sideboard
+                           : DeckSection.Main;
+            deck.getOrCreate(ds).add(cardName.trim(), qty);
+        }
+        return deck;
     }
 
     private Deck findDeck(String name) {
