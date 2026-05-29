@@ -7359,7 +7359,13 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
         if (isSplitCard()) {
             switch(mode) {
                 case CurrentSideCMC:
-                    requestedCMC = getManaCost().getCMC() + xPaid;
+                    if (!isInZone(ZoneType.Stack)) {
+                        // MTG rule 202.3c: outside the stack, split cards use combined CMC of both halves
+                        requestedCMC = getState(CardStateName.LeftSplit).getManaCost().getCMC()
+                                     + getState(CardStateName.RightSplit).getManaCost().getCMC();
+                    } else {
+                        requestedCMC = getManaCost().getCMC() + xPaid;
+                    }
                     break;
                 case LeftSplitCMC:
                     requestedCMC = getState(CardStateName.LeftSplit).getManaCost().getCMC() + xPaid;
