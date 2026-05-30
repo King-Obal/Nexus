@@ -757,6 +757,25 @@ document.addEventListener('keydown', e => {
   if (passBtn && !passBtn.classList.contains('hidden')) sendDecision({ choice: 'pass' });
 });
 
+// Ctrl+Z = annuler le tap des lands (uniquement si canUndo actif dans l'état courant)
+document.addEventListener('keydown', async e => {
+  if (!(e.ctrlKey && e.key === 'z') || e.repeat) return;
+  const focused = document.activeElement;
+  if (focused && ['INPUT','TEXTAREA'].includes(focused.tagName)) return;
+  const dec = playState?.pendingDecision;
+  if (!dec || dec.type !== 'CHOOSE_ACTION' || !dec.data?.canUndo) return;
+  if (dec.data?.responding || dec.data?.opponentTurn) return;
+  try {
+    const res = await window.forgeApi.post('/api/game/' + playSession + '/undo', {});
+    if (res.ok) {
+      await new Promise(r => setTimeout(r, 300));
+      const playerParam = isPvpGame ? '?player=' + pvpPlayerIndex : '';
+      const state = await window.forgeApi.get('/api/game/' + playSession + '/state' + playerParam);
+      renderGameState(state);
+    }
+  } catch (err) { console.error('[undo] error:', err); }
+});
+
 // ── Auto-pass / Hold-priority toggles ─────────────────────────────────────
 let autoPassEOT = false;
 const autoPassBtn = document.getElementById('auto-pass-eot-btn');

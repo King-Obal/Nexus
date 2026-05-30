@@ -96,124 +96,146 @@ public class PlayerControllerApi extends PlayerController {
             try { Thread.sleep(900); } catch (InterruptedException ignored) {}
         }
 
-        Map<String, SpellAbility> idToSa = new LinkedHashMap<>();
-        List<Map<String, Object>> allOptions = new ArrayList<>();
+        while (true) { // loop to handle undo
+            Map<String, SpellAbility> idToSa = new LinkedHashMap<>();
+            List<Map<String, Object>> allOptions = new ArrayList<>();
 
-        for (ZoneType zone : Arrays.asList(ZoneType.Hand, ZoneType.Command,
-                ZoneType.Graveyard, ZoneType.Exile)) {
-            try { addPlayableAbilities(player.getCardsIn(zone), idToSa, allOptions); }
-            catch (Exception e) { System.err.println("[API] Error building options for zone " + zone + ": " + e); }
-        }
-        for (Card c : player.getCardsIn(ZoneType.Battlefield)) {
-            int saIdx = 0;
-            try {
-                for (SpellAbility sa : c.getAllPossibleAbilities(player, true)) {
-                    String saId = "C" + c.getId() + ":SA" + saIdx;
-                    idToSa.put(saId, sa);
-                    try {
-                        Map<String, Object> opt = buildSaOption(saId, c, sa, "BATTLEFIELD");
-                        if (sa.isManaAbility()) opt.put("isMana", true);
-                        allOptions.add(opt);
-                    } catch (Exception e) { System.err.println("[API] buildSaOption error for " + c.getName() + ": " + e); }
-                    saIdx++;
-                }
-            } catch (Exception e) { System.err.println("[API] Error building BF options for " + c.getName() + ": " + e); }
-        }
+            // Refresh phase/stack state at top of each loop (relevant after undo restores state)
+            phase = getGame().getPhaseHandler().getPhase();
+            isMyTurn = getGame().getPhaseHandler().isPlayerTurn(player);
+            hasStack = !getGame().getStack().isEmpty();
 
-        // Partner lock (Duel Commander): once one commander is cast, permanently lock the other(s)
-        List<Card> cmdrs = player.getCommanders();
-        if (cmdrs.size() >= 2) {
-            // First check if session already has a stored lock (persists across CHOOSE_ACTION calls)
-            Set<Integer> locked = session.getLockedPartnerIds();
-            if (locked == null || locked.isEmpty()) {
-                // Try to detect first cast using getCommanderCast
-                Set<Integer> castIds = new java.util.HashSet<>();
-                for (Card c : cmdrs) {
-                    if (player.getCommanderCast(c) > 0) castIds.add(c.getId());
-                }
-                // Also detect by checking if any commander is NOT in the command zone (on stack or battlefield)
-                for (Card c : cmdrs) {
-                    if (c.getZone() == null || c.getZone().getZoneType() != ZoneType.Command) {
-                        castIds.add(c.getId());
+            // Snapshot for undo: take when mana pool is empty + stack is empty + our turn
+            // This captures the state before any mana abilities are activated this priority window
+            if (isMyTurn && !hasStack && player.getManaPool().isEmpty()) {
+                getGame().stashGameState();
+            }
+
+            for (ZoneType zone : Arrays.asList(ZoneType.Hand, ZoneType.Command,
+                    ZoneType.Graveyard, ZoneType.Exile)) {
+                try { addPlayableAbilities(player.getCardsIn(zone), idToSa, allOptions); }
+                catch (Exception e) { System.err.println("[API] Error building options for zone " + zone + ": " + e); }
+            }
+            for (Card c : player.getCardsIn(ZoneType.Battlefield)) {
+                int saIdx = 0;
+                try {
+                    for (SpellAbility sa : c.getAllPossibleAbilities(player, true)) {
+                        String saId = "C" + c.getId() + ":SA" + saIdx;
+                        idToSa.put(saId, sa);
+                        try {
+                            Map<String, Object> opt = buildSaOption(saId, c, sa, "BATTLEFIELD");
+                            if (sa.isManaAbility()) opt.put("isMana", true);
+                            allOptions.add(opt);
+                        } catch (Exception e) { System.err.println("[API] buildSaOption error for " + c.getName() + ": " + e); }
+                        saIdx++;
                     }
-                }
-                if (!castIds.isEmpty()) {
-                    Set<Integer> toLock = new java.util.HashSet<>();
+                } catch (Exception e) { System.err.println("[API] Error building BF options for " + c.getName() + ": " + e); }
+            }
+
+            // Partner lock (Duel Commander): once one commander is cast, permanently lock the other(s)
+            List<Card> cmdrs = player.getCommanders();
+            if (cmdrs.size() >= 2) {
+                // First check if session already has a stored lock (persists across CHOOSE_ACTION calls)
+                Set<Integer> locked = session.getLockedPartnerIds();
+                if (locked == null || locked.isEmpty()) {
+                    // Try to detect first cast using getCommanderCast
+                    Set<Integer> castIds = new java.util.HashSet<>();
                     for (Card c : cmdrs) {
-                        if (!castIds.contains(c.getId())) toLock.add(c.getId());
+                        if (player.getCommanderCast(c) > 0) castIds.add(c.getId());
                     }
-                    if (!toLock.isEmpty()) {
-                        session.setLockedPartnerIds(toLock);
-                        locked = toLock;
-                        System.err.println("[API] Partner lock: castIds=" + castIds + " locked=" + toLock);
+                    // Also detect by checking if any commander is NOT in the command zone (on stack or battlefield)
+                    for (Card c : cmdrs) {
+                        if (c.getZone() == null || c.getZone().getZoneType() != ZoneType.Command) {
+                            castIds.add(c.getId());
+                        }
+                    }
+                    if (!castIds.isEmpty()) {
+                        Set<Integer> toLock = new java.util.HashSet<>();
+                        for (Card c : cmdrs) {
+                            if (!castIds.contains(c.getId())) toLock.add(c.getId());
+                        }
+                        if (!toLock.isEmpty()) {
+                            session.setLockedPartnerIds(toLock);
+                            locked = toLock;
+                            System.err.println("[API] Partner lock: castIds=" + castIds + " locked=" + toLock);
+                        }
+                    }
+                }
+                if (locked != null && !locked.isEmpty()) {
+                    final Set<Integer> finalLocked = locked;
+                    Set<String> idsToRemove = new java.util.HashSet<>();
+                    for (Map.Entry<String, SpellAbility> entry : idToSa.entrySet()) {
+                        Card card = entry.getValue().getHostCard();
+                        if (card.getZone() != null
+                                && card.getZone().getZoneType() == ZoneType.Command
+                                && finalLocked.contains(card.getId())) {
+                            idsToRemove.add(entry.getKey());
+                        }
+                    }
+                    if (!idsToRemove.isEmpty()) {
+                        allOptions.removeIf(o -> idsToRemove.contains(o.get("id")));
+                        idsToRemove.forEach(idToSa::remove);
                     }
                 }
             }
-            if (locked != null && !locked.isEmpty()) {
-                final Set<Integer> finalLocked = locked;
-                Set<String> idsToRemove = new java.util.HashSet<>();
-                for (Map.Entry<String, SpellAbility> entry : idToSa.entrySet()) {
-                    Card card = entry.getValue().getHostCard();
-                    if (card.getZone() != null
-                            && card.getZone().getZoneType() == ZoneType.Command
-                            && finalLocked.contains(card.getId())) {
-                        idsToRemove.add(entry.getKey());
-                    }
+
+            // Auto-pass during COMBAT_BEGIN when no creatures can attack and no spells to cast
+            if (isMyTurn && !hasStack && phase == forge.game.phase.PhaseType.COMBAT_BEGIN) {
+                boolean anyCanAttack = false;
+                for (Card c : player.getCreaturesInPlay()) {
+                    if (CombatUtil.canAttack(c)) { anyCanAttack = true; break; }
                 }
-                if (!idsToRemove.isEmpty()) {
-                    allOptions.removeIf(o -> idsToRemove.contains(o.get("id")));
-                    idsToRemove.forEach(idToSa::remove);
+                if (!anyCanAttack) {
+                    boolean hasSpellAction = false;
+                    for (Map<String, Object> o : allOptions) {
+                        if (!Boolean.TRUE.equals(o.get("isMana")) && !Boolean.TRUE.equals(o.get("isLand"))) {
+                            hasSpellAction = true; break;
+                        }
+                    }
+                    if (!hasSpellAction) return null;
                 }
             }
+
+            Map<String, Object> data = new LinkedHashMap<>();
+            // Send ALL options (including mana) so bf card clicks can find mana abilities
+            data.put("options", allOptions);
+            if (hasStack) data.put("responding", true);
+            if (!isMyTurn) data.put("opponentTurn", true);
+            if (phase != null) data.put("phase", phase.name());
+            // Signal to client whether undo is available (snapshot exists + stack empty + our turn)
+            if (isMyTurn && !hasStack) data.put("canUndo", true);
+
+            session.publishDecision("CHOOSE_ACTION", playerIndex, data);
+            Map<String, Object> response = awaitOrAbort(10, TimeUnit.MINUTES);
+
+            if (response == null) return null;
+            String choice = (String) response.get("choice");
+
+            // Undo: game state was already restored by the undo endpoint; rebuild options and re-publish
+            if ("__undo__".equals(choice)) {
+                System.out.println("[PlayerControllerApi] Undo received — re-building options from restored state");
+                continue;
+            }
+
+            if (choice == null || choice.equals("pass")) return null;
+
+            Object manaColorObj = response.get("manaColor");
+            if (manaColorObj instanceof String) {
+                String mc = (String) manaColorObj;
+                pendingManaColorMask = switch (mc) {
+                    case "W" -> MagicColor.WHITE;
+                    case "U" -> MagicColor.BLUE;
+                    case "B" -> MagicColor.BLACK;
+                    case "R" -> MagicColor.RED;
+                    case "G" -> MagicColor.GREEN;
+                    default  -> 0;
+                };
+            }
+
+            SpellAbility sa = idToSa.get(choice);
+            if (sa == null) return null;
+            return Collections.singletonList(sa);
         }
-
-        // Auto-pass during COMBAT_BEGIN when no creatures can attack and no spells to cast
-        if (isMyTurn && !hasStack && phase == forge.game.phase.PhaseType.COMBAT_BEGIN) {
-            boolean anyCanAttack = false;
-            for (Card c : player.getCreaturesInPlay()) {
-                if (CombatUtil.canAttack(c)) { anyCanAttack = true; break; }
-            }
-            if (!anyCanAttack) {
-                boolean hasSpellAction = false;
-                for (Map<String, Object> o : allOptions) {
-                    if (!Boolean.TRUE.equals(o.get("isMana")) && !Boolean.TRUE.equals(o.get("isLand"))) {
-                        hasSpellAction = true; break;
-                    }
-                }
-                if (!hasSpellAction) return null;
-            }
-        }
-
-        Map<String, Object> data = new LinkedHashMap<>();
-        // Send ALL options (including mana) so bf card clicks can find mana abilities
-        data.put("options", allOptions);
-        if (hasStack) data.put("responding", true);
-        if (!isMyTurn) data.put("opponentTurn", true);
-        if (phase != null) data.put("phase", phase.name());
-
-        session.publishDecision("CHOOSE_ACTION", playerIndex, data);
-        Map<String, Object> response = awaitOrAbort(10, TimeUnit.MINUTES);
-
-        if (response == null) return null;
-        String choice = (String) response.get("choice");
-        if (choice == null || choice.equals("pass")) return null;
-
-        Object manaColorObj = response.get("manaColor");
-        if (manaColorObj instanceof String) {
-            String mc = (String) manaColorObj;
-            pendingManaColorMask = switch (mc) {
-                case "W" -> MagicColor.WHITE;
-                case "U" -> MagicColor.BLUE;
-                case "B" -> MagicColor.BLACK;
-                case "R" -> MagicColor.RED;
-                case "G" -> MagicColor.GREEN;
-                default  -> 0;
-            };
-        }
-
-        SpellAbility sa = idToSa.get(choice);
-        if (sa == null) return null;
-        return Collections.singletonList(sa);
     }
 
     private void addPlayableAbilities(CardCollectionView cards,

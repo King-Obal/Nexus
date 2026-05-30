@@ -74,6 +74,9 @@ public class GameServlet extends HttpServlet {
         } else if (uri.contains("/game/") && uri.endsWith("/respond")) {
             String id = extractId(uri, "/respond");
             handleRespond(id, req, resp);
+        } else if (uri.contains("/game/") && uri.endsWith("/undo")) {
+            String id = extractId(uri, "/undo");
+            handleUndo(id, resp);
         } else if (uri.contains("/game/") && uri.contains("/debug/add-card")) {
             String id = extractId(uri, "/debug/add-card");
             handleDebugAddCard(id, req, resp);
@@ -313,6 +316,7 @@ public class GameServlet extends HttpServlet {
 
                 Match match = new Match(rules, List.of(rp1, rp2), "InteractivePlay");
                 Game game = match.createGame();
+                game.EXPERIMENTAL_RESTORE_SNAPSHOT = true; // enable undo snapshots
                 session.setGame(game);
 
                 match.startGame(game);
@@ -578,6 +582,18 @@ public class GameServlet extends HttpServlet {
     }
 
     // ── POST /api/game/{id}/concede ──────────────────────────────────────────
+
+    private void handleUndo(String id, HttpServletResponse resp) throws IOException {
+        GameSession session = GameSessionManager.getInstance().get(id);
+        if (session == null) {
+            resp.setStatus(404);
+            mapper.writeValue(resp.getWriter(), error("Session not found: " + id));
+            return;
+        }
+        boolean ok = session.requestUndo();
+        mapper.writeValue(resp.getWriter(), Map.of("ok", ok,
+                "reason", ok ? "undo applied" : "undo not available (stack not empty or no snapshot)"));
+    }
 
     private void handleConcede(String id, HttpServletResponse resp) throws IOException {
         handleConcede(id, resp, 0); // default: player 0 concedes

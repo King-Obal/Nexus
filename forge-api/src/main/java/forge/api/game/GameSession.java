@@ -154,6 +154,20 @@ public class GameSession {
         return true;
     }
 
+    /**
+     * Attempt to undo land taps: restores the last snapshot and signals the game thread to
+     * rebuild its CHOOSE_ACTION options from the restored state.
+     * Only allowed when the stack is empty (no spells cast yet this priority window).
+     */
+    public boolean requestUndo() {
+        Game g = game;
+        if (g == null) return false;
+        if (!g.getStack().isEmpty()) return false;
+        if (!g.restoreGameState()) return false;
+        // Signal the game thread to re-loop in chooseSpellAbilityToPlay
+        return receiveDecision(Map.of("choice", "__undo__"));
+    }
+
     public Map<String, Object> getPendingDecision() { return pendingDecision; }
 
     // ── Game state serialization ──────────────────────────────────────────────
